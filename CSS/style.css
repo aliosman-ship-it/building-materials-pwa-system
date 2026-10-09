@@ -440,6 +440,82 @@ input:focus, select:focus, textarea:focus {
   font-size: .65rem;
 }
 
+/* تحسينات استخدام التطبيق على الشاشات الصغيرة */
+.app-header-inner,
+.app-brand,
+.app-header-actions {
+  min-width: 0;
+}
+
+.app-brand > div:last-child {
+  min-width: 0;
+}
+
+.app-header-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.app-modal {
+  padding: max(.5rem, env(safe-area-inset-top)) max(.5rem, env(safe-area-inset-right))
+    max(.5rem, env(safe-area-inset-bottom)) max(.5rem, env(safe-area-inset-left));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.app-modal-dialog {
+  width: min(100%, 34rem);
+  max-height: 85vh;
+  max-height: 85dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-height: 3.5rem;
+}
+
+.app-modal-close {
+  display: inline-flex;
+  flex: 0 0 44px;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-height: 44px;
+  border-radius: .65rem;
+}
+
+.app-modal-content {
+  min-width: 0;
+}
+
+.customer-statement-modal {
+  padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+    max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  overscroll-behavior: contain;
+}
+
+button,
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select,
+textarea {
+  touch-action: manipulation;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid #f59e0b;
+  outline-offset: 2px;
+}
+
 @media (max-width: 560px) {
   .customer-statement-modal {
     padding: .4rem;
@@ -466,6 +542,114 @@ input:focus, select:focus, textarea:focus {
 
   .customer-statement-table {
     min-width: 580px;
+  }
+}
+
+@media (max-width: 640px) {
+  #tabs-navigation {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .35rem;
+    overflow: visible;
+    padding: .5rem;
+  }
+
+  #tabs-navigation > button {
+    min-width: 0;
+    min-height: 3.25rem;
+    justify-content: center;
+    padding: .6rem .45rem;
+    text-align: center;
+    white-space: normal;
+    font-size: .78rem;
+    line-height: 1.4;
+  }
+
+  #tabs-navigation > button:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .app-header-inner {
+    align-items: stretch;
+    gap: .75rem;
+  }
+
+  .app-brand {
+    width: 100%;
+    align-items: flex-start;
+  }
+
+  .app-brand-icon {
+    flex: 0 0 2.75rem;
+  }
+
+  .app-header-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .5rem;
+  }
+
+  .app-header-actions > button {
+    min-width: 0;
+    min-height: 2.75rem;
+    padding-inline: .5rem;
+    white-space: normal;
+    line-height: 1.3;
+  }
+
+  .app-header-actions > button span {
+    display: inline !important;
+  }
+
+  .app-modal {
+    align-items: center;
+    padding: .5rem;
+  }
+
+  .app-modal-dialog {
+    width: 95%;
+    max-height: 85vh;
+    max-height: 85dvh;
+    border-radius: .9rem;
+  }
+
+  .app-modal-content {
+    padding: 1rem;
+  }
+
+  #add-client-form {
+    flex-direction: column;
+  }
+
+  #add-client-form > button {
+    width: 100%;
+  }
+
+  .customer-statement-toolbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: .5rem;
+  }
+
+  .customer-statement-toolbar-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .customer-statement-print-btn {
+    flex: 1;
+  }
+
+  button,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  select,
+  textarea {
+    min-height: 44px;
+  }
+
+  body > main {
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom)) !important;
   }
 }
 

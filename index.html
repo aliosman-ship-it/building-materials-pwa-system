@@ -45,6 +45,10 @@
     }
     .pin-card {
       width: min(100%, 26rem);
+      max-height: calc(100vh - 2rem);
+      max-height: calc(100dvh - 2rem);
+      overflow-y: auto;
+      overscroll-behavior: contain;
       padding: clamp(1.25rem, 5vw, 2rem);
       border-radius: 1.25rem;
       background: #fff;
@@ -859,8 +863,8 @@
 
   <!-- نافذة مودال: إدارة وإضافة العملاء (Client Management Modal) -->
   <div id="client-modal" class="app-modal fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="client-modal-title">
-    <div class="app-modal-dialog bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
-      <div class="app-modal-header bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
+    <div class="app-modal-dialog bg-white rounded-2xl max-w-md w-full max-h-[85vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
+      <div class="app-modal-header bg-slate-900 text-white px-5 py-4 flex items-center justify-between shrink-0">
         <h3 class="text-base font-bold flex items-center gap-2">
           <i class="fa-solid fa-users text-amber-400"></i>
           <span id="client-modal-title">إدارة قائمة العملاء</span>
@@ -870,7 +874,7 @@
         </button>
       </div>
       
-      <div class="app-modal-content p-5 space-y-4">
+      <div class="app-modal-content p-5 space-y-4 flex-1 min-h-0 overflow-y-auto">
         <!-- نموذج إضافة عميل جديد -->
         <form id="add-client-form" class="flex gap-2">
           <input type="text" id="new-client-name" placeholder="أدخل اسم العميل أو الشركة..." required class="flex-grow h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white">
@@ -890,7 +894,7 @@
 
       </div>
       
-      <div class="bg-slate-50 px-5 py-3 border-t border-slate-200 text-left">
+      <div class="bg-slate-50 px-5 py-3 border-t border-slate-200 text-left shrink-0">
         <button type="button" id="done-client-modal-btn" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-bold transition">
           إغلاق
         </button>
@@ -900,8 +904,8 @@
 
   <!-- نافذة مودال: تخصيص مواد وأسعار العملاء -->
   <div id="client-catalog-modal" class="app-modal fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="client-catalog-modal-title">
-    <div class="app-modal-dialog bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
-      <div class="app-modal-header bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
+    <div class="app-modal-dialog bg-white rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
+      <div class="app-modal-header bg-slate-900 text-white px-5 py-4 flex items-center justify-between shrink-0">
         <h3 id="client-catalog-modal-title" class="text-base font-bold flex items-center gap-2">
           <i class="fa-solid fa-tags text-amber-400"></i>
           <span>تخصيص أسعار ومواد العملاء</span>
@@ -911,7 +915,7 @@
         </button>
       </div>
 
-      <div class="app-modal-content p-5 space-y-5">
+      <div class="app-modal-content p-5 space-y-5 flex-1 min-h-0 overflow-y-auto">
         <div class="space-y-1.5">
           <label for="client-catalog-client-select" class="block text-sm font-bold text-slate-700">العميل / الشركة</label>
           <select id="client-catalog-client-select" class="w-full h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white"></select>
@@ -950,7 +954,7 @@
         </form>
       </div>
 
-      <div class="bg-slate-50 px-5 py-3 border-t border-slate-200 text-left">
+      <div class="bg-slate-50 px-5 py-3 border-t border-slate-200 text-left shrink-0">
         <button type="button" id="done-client-catalog-modal-btn" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-bold transition">إغلاق</button>
       </div>
     </div>
@@ -958,8 +962,8 @@
 
   <!-- نافذة مودال: تعديل نقلة (Edit Trip Modal) -->
   <div id="edit-trip-modal" class="app-modal fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="edit-trip-modal-title">
-    <div class="app-modal-dialog bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
-      <div class="app-modal-header bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
+    <div class="app-modal-dialog bg-white rounded-2xl max-w-lg w-full max-h-[85vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
+      <div class="app-modal-header bg-slate-900 text-white px-5 py-4 flex items-center justify-between shrink-0">
         <h3 class="text-base font-bold flex items-center gap-2">
           <i class="fa-solid fa-pen-to-square text-emerald-400"></i>
           <span id="edit-trip-modal-title">تعديل بيانات النقلة</span>
@@ -969,10 +973,10 @@
         </button>
       </div>
 
-      <form id="edit-trip-form" class="app-modal-content p-5 space-y-4">
+      <form id="edit-trip-form" class="app-modal-content p-5 space-y-4 flex flex-1 min-h-0 flex-col">
         <input type="hidden" id="edit-trip-id">
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1 min-h-0 overflow-y-auto">
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">اسم العميل</label>
             <select id="edit-client-select" required class="w-full h-10 px-3 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold text-slate-800"></select>
@@ -1007,7 +1011,7 @@
           </div>
         </div>
 
-        <div class="pt-3 border-t border-slate-200 flex justify-end gap-2">
+        <div class="pt-3 border-t border-slate-200 flex justify-end gap-2 shrink-0">
           <button type="button" id="cancel-edit-btn" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition">
             إلغاء
           </button>

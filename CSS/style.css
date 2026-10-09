@@ -100,6 +100,10 @@ input:focus, select:focus, textarea:focus {
   z-index: 9999;
   display: flex;
   flex-direction: column;
+  max-height: calc(100vh - 3rem);
+  max-height: calc(100dvh - 3rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   gap: 0.5rem;
   pointer-events: none;
 }
@@ -469,7 +473,7 @@ input:focus, select:focus, textarea:focus {
   max-height: 85vh;
   max-height: 85dvh;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }

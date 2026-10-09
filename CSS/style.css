@@ -208,18 +208,18 @@ input:focus, select:focus, textarea:focus {
 }
 
 .customer-statement-dialog {
+  display: flex;
+  flex-direction: column;
   width: min(100%, 900px);
   max-height: calc(100vh - 2rem);
-  overflow: auto;
+  overflow: hidden;
   border-radius: 1rem;
   background: #fff;
   box-shadow: 0 24px 60px rgb(0 0 0 / 25%);
 }
 
 .customer-statement-toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -229,16 +229,28 @@ input:focus, select:focus, textarea:focus {
   color: #fff;
 }
 
+.customer-statement-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: .5rem;
+  padding: .75rem 1rem;
+  border-top: 1px solid #cbd5e1;
+  background: #f8fafc;
+}
+
 .customer-statement-toolbar h2 {
   margin: 0;
   font-size: 1rem;
   font-weight: 900;
 }
 
-.customer-statement-toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
+.customer-statement-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .customer-statement-print-btn,
@@ -268,7 +280,6 @@ input:focus, select:focus, textarea:focus {
 
 .customer-statement-page {
   max-width: 210mm;
-  min-height: 180mm;
   margin: 1.25rem auto;
   padding: 14mm;
   background: #fff;
@@ -623,23 +634,8 @@ textarea:focus-visible {
     padding: 1rem;
   }
 
-  #add-client-form {
-    flex-direction: column;
-  }
-
-  #add-client-form > button {
-    width: 100%;
-  }
-
-  .customer-statement-toolbar {
-    align-items: flex-start;
-    flex-wrap: wrap;
-    gap: .5rem;
-  }
-
-  .customer-statement-toolbar-actions {
-    width: 100%;
-    justify-content: space-between;
+  .customer-statement-actions {
+    padding: .6rem .75rem;
   }
 
   .customer-statement-print-btn {
@@ -693,6 +689,7 @@ textarea:focus-visible {
   }
 
   body.printing-customer-statement .customer-statement-dialog {
+    display: block !important;
     width: 100% !important;
     max-height: none !important;
     overflow: visible !important;
@@ -710,6 +707,7 @@ textarea:focus-visible {
     width: 100% !important;
     max-width: none !important;
     min-height: 0 !important;
+    overflow: visible !important;
     margin: 0 !important;
     padding: 0 !important;
     border: 0 !important;

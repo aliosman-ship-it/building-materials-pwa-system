@@ -45,15 +45,27 @@
     }
     .pin-card {
       width: min(100%, 26rem);
+      display: flex;
+      flex-direction: column;
       max-height: calc(100vh - 2rem);
       max-height: calc(100dvh - 2rem);
-      overflow-y: auto;
+      overflow: hidden;
       overscroll-behavior: contain;
       padding: clamp(1.25rem, 5vw, 2rem);
       border-radius: 1.25rem;
       background: #fff;
       box-shadow: 0 24px 60px #0005;
       text-align: center;
+    }
+    .pin-card-content {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    .pin-card-actions {
+      flex: 0 0 auto;
+      padding-top: 1rem;
     }
     .pin-input {
       display: block;
@@ -102,13 +114,27 @@
     }
     .pin-settings-card {
       width: min(100%, 28rem);
+      max-height: calc(100vh - 2rem);
       max-height: calc(100dvh - 2rem);
-      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
       padding: 1.25rem;
       border-radius: 1rem;
       background: #fff;
       color: #0f172a;
       font-family: 'Cairo', system-ui, sans-serif;
+    }
+    .pin-settings-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    .pin-settings-footer {
+      flex: 0 0 auto;
+      padding-top: .75rem;
+      border-top: 1px solid #e2e8f0;
     }
     .pin-settings-card label {
       display: block;
@@ -128,12 +154,11 @@
       text-align: center;
     }
     .pin-settings-actions {
-      display: flex;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: .65rem;
-      margin-top: 1rem;
     }
     .pin-settings-actions button {
-      flex: 1;
       min-height: 3.25rem;
       border: 0;
       border-radius: .65rem;
@@ -143,7 +168,31 @@
     }
     @media (max-width: 420px) {
       .pin-settings-actions {
-        flex-direction: column;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      #close-pin-settings-btn {
+        grid-column: 1 / -1;
+      }
+    }
+    @media (max-height: 500px) {
+      .pin-settings-card {
+        padding: .75rem;
+      }
+      .pin-settings-footer .pin-error {
+        min-height: 1.25rem;
+        margin: .1rem 0 .4rem;
+      }
+      .pin-settings-actions {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: .4rem;
+      }
+      .pin-settings-actions button {
+        min-height: 2.5rem;
+        padding: .25rem;
+        font-size: .75rem;
+      }
+      #close-pin-settings-btn {
+        grid-column: auto;
       }
     }
   </style>
@@ -193,13 +242,17 @@
 
   <section id="pin-screen" hidden aria-labelledby="pin-screen-title">
     <form id="pin-unlock-form" class="pin-card">
-      <div aria-hidden="true" style="font-size:2.5rem;color:#0369a1">🔒</div>
-      <h1 id="pin-screen-title" style="margin:.5rem 0;font-size:1.4rem;font-weight:900">إدخال رمز الدخول</h1>
-      <p style="margin:0;color:#475569;font-weight:700">أدخل الرمز السري المكوّن من أربعة أرقام لفتح التطبيق.</p>
-      <label for="pin-unlock-input" style="display:block;margin-top:1rem;font-weight:800">رمز PIN</label>
-      <input id="pin-unlock-input" class="pin-input" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="current-password" required aria-describedby="pin-unlock-error">
-      <p id="pin-unlock-error" class="pin-error" role="alert"></p>
-      <button type="submit" class="pin-button">فتح التطبيق</button>
+      <div class="pin-card-content">
+        <div aria-hidden="true" style="font-size:2.5rem;color:#0369a1">🔒</div>
+        <h1 id="pin-screen-title" style="margin:.5rem 0;font-size:1.4rem;font-weight:900">إدخال رمز الدخول</h1>
+        <p style="margin:0;color:#475569;font-weight:700">أدخل الرمز السري المكوّن من أربعة أرقام لفتح التطبيق.</p>
+        <label for="pin-unlock-input" style="display:block;margin-top:1rem;font-weight:800">رمز PIN</label>
+        <input id="pin-unlock-input" class="pin-input" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="current-password" required aria-describedby="pin-unlock-error">
+        <p id="pin-unlock-error" class="pin-error" role="alert"></p>
+      </div>
+      <div class="pin-card-actions">
+        <button type="submit" class="pin-button">فتح التطبيق</button>
+      </div>
     </form>
   </section>
 
@@ -787,17 +840,8 @@
 
   <section id="customer-statement-modal" class="customer-statement-modal" hidden role="dialog" aria-modal="true" aria-labelledby="customer-statement-dialog-title">
     <div class="customer-statement-dialog">
-      <div class="customer-statement-toolbar no-print">
+      <div class="customer-statement-toolbar">
         <h2 id="customer-statement-dialog-title">كشف حساب العميل</h2>
-        <div class="customer-statement-toolbar-actions">
-          <button id="print-customer-statement-btn" type="button" class="customer-statement-print-btn">
-            <i class="fa-solid fa-print" aria-hidden="true"></i>
-            <span>طباعة / حفظ PDF</span>
-          </button>
-          <button id="close-customer-statement-btn" type="button" class="customer-statement-close-btn" aria-label="إغلاق كشف الحساب">
-            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
-          </button>
-        </div>
       </div>
 
       <article id="customer-statement-page" class="customer-statement-page">
@@ -858,6 +902,15 @@
           <span>يعتمد الكشف على البيانات المحفوظة محلياً في هذا الجهاز.</span>
         </footer>
       </article>
+      <div class="customer-statement-actions no-print">
+        <button id="print-customer-statement-btn" type="button" class="customer-statement-print-btn">
+          <i class="fa-solid fa-print" aria-hidden="true"></i>
+          <span>طباعة / حفظ PDF</span>
+        </button>
+        <button id="close-customer-statement-btn" type="button" class="customer-statement-close-btn" aria-label="إغلاق كشف الحساب">
+          <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+        </button>
+      </div>
     </div>
   </section>
 
@@ -878,10 +931,6 @@
         <!-- نموذج إضافة عميل جديد -->
         <form id="add-client-form" class="flex gap-2">
           <input type="text" id="new-client-name" placeholder="أدخل اسم العميل أو الشركة..." required class="flex-grow h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white">
-          <button type="submit" class="h-11 px-4 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition flex items-center gap-1.5 flex-shrink-0">
-            <i class="fa-solid fa-plus"></i>
-            <span>إضافة</span>
-          </button>
         </form>
 
         <!-- قائمة العملاء الحالية -->
@@ -894,7 +943,11 @@
 
       </div>
       
-      <div class="bg-slate-50 px-5 py-3 border-t border-slate-200 text-left shrink-0">
+      <div class="bg-slate-50 px-5 py-3 border-t border-slate-200 flex items-center justify-between gap-2 shrink-0">
+        <button type="submit" form="add-client-form" class="h-11 px-4 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition inline-flex items-center gap-1.5">
+          <i class="fa-solid fa-plus"></i>
+          <span>إضافة</span>
+        </button>
         <button type="button" id="done-client-modal-btn" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-bold transition">
           إغلاق
         </button>
@@ -939,22 +992,20 @@
           </div>
         </div>
 
-        <form id="client-catalog-form" class="grid grid-cols-1 sm:grid-cols-[1fr_120px_150px_auto] gap-2 border-t border-slate-200 pt-4">
+        <form id="client-catalog-form" class="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <input id="client-catalog-material" type="text" required maxlength="120" placeholder="المادة أو الخدمة" class="w-full h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white">
           <input id="client-catalog-unit" type="text" required maxlength="30" value="رد" placeholder="الوحدة" aria-label="الوحدة المخصصة" class="w-full h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white">
           <input id="client-catalog-price" type="number" min="0" step="any" required placeholder="السعر الافتراضي" aria-label="السعر الافتراضي بالريال" class="w-full h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white">
-          <div class="flex items-center gap-2">
-            <button id="save-client-catalog-item-btn" type="submit" class="h-11 px-4 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 whitespace-nowrap">
-              <i class="fa-solid fa-plus"></i><span>إضافة</span>
-            </button>
-            <button id="cancel-client-catalog-edit-btn" type="button" class="hidden h-11 px-3 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl text-xs transition whitespace-nowrap">
-              إلغاء
-            </button>
-          </div>
         </form>
       </div>
 
-      <div class="bg-slate-50 px-5 py-3 border-t border-slate-200 text-left shrink-0">
+      <div class="bg-slate-50 px-5 py-3 border-t border-slate-200 flex items-center justify-between gap-2 shrink-0">
+        <button id="save-client-catalog-item-btn" type="submit" form="client-catalog-form" class="h-11 px-4 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 whitespace-nowrap">
+          <i class="fa-solid fa-plus"></i><span>إضافة</span>
+        </button>
+        <button id="cancel-client-catalog-edit-btn" type="button" class="hidden h-11 px-3 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl text-xs transition whitespace-nowrap">
+          إلغاء
+        </button>
         <button type="button" id="done-client-catalog-modal-btn" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-bold transition">إغلاق</button>
       </div>
     </div>
@@ -1041,23 +1092,27 @@
 
   <section id="pin-settings-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pin-settings-title">
     <form id="pin-settings-form" class="pin-settings-card">
-      <h2 id="pin-settings-title" style="margin:0;font-size:1.25rem;font-weight:900">إعداد رمز الدخول</h2>
-      <p id="pin-settings-help" style="margin:.35rem 0;color:#475569;font-size:.9rem">الرمز قفل محلي لهذا المتصفح فقط، ولا يشفر ملفات البيانات.</p>
-      <div id="pin-current-field">
-        <label for="pin-current-input">الرمز الحالي</label>
-        <input id="pin-current-input" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="current-password">
+      <div class="pin-settings-body">
+        <h2 id="pin-settings-title" style="margin:0;font-size:1.25rem;font-weight:900">إعداد رمز الدخول</h2>
+        <p id="pin-settings-help" style="margin:.35rem 0;color:#475569;font-size:.9rem">الرمز قفل محلي لهذا المتصفح فقط، ولا يشفر ملفات البيانات.</p>
+        <div id="pin-current-field">
+          <label for="pin-current-input">الرمز الحالي</label>
+          <input id="pin-current-input" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="current-password">
+        </div>
+        <div id="pin-new-fields">
+          <label for="pin-new-input">الرمز الجديد (أربعة أرقام)</label>
+          <input id="pin-new-input" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="new-password">
+          <label for="pin-confirm-input">تأكيد الرمز الجديد</label>
+          <input id="pin-confirm-input" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="new-password">
+        </div>
       </div>
-      <div id="pin-new-fields">
-        <label for="pin-new-input">الرمز الجديد (أربعة أرقام)</label>
-        <input id="pin-new-input" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="new-password">
-        <label for="pin-confirm-input">تأكيد الرمز الجديد</label>
-        <input id="pin-confirm-input" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="new-password">
-      </div>
-      <p id="pin-settings-error" class="pin-error" role="alert"></p>
-      <div class="pin-settings-actions">
-        <button type="submit" style="background:#047857">حفظ الرمز</button>
-        <button id="remove-pin-btn" type="button" style="background:#b91c1c">إزالة الرمز</button>
-        <button id="close-pin-settings-btn" type="button" style="background:#475569">إغلاق</button>
+      <div class="pin-settings-footer">
+        <p id="pin-settings-error" class="pin-error" role="alert"></p>
+        <div class="pin-settings-actions">
+          <button type="submit" style="background:#047857">حفظ الرمز</button>
+          <button id="remove-pin-btn" type="button" style="background:#b91c1c">إزالة الرمز</button>
+          <button id="close-pin-settings-btn" type="button" style="background:#475569">إغلاق</button>
+        </div>
       </div>
     </form>
   </section>

@@ -1,0 +1,558 @@
+/* أنماط وتنسيقات مخصصة - نظام إدارة نقل مواد البناء والمخلفات */
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&display=swap');
+
+:root {
+  --font-arabic: 'Cairo', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+body {
+  font-family: var(--font-arabic);
+  direction: rtl;
+  text-align: right;
+  background-color: #f8fafc;
+  color: #1e293b;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* تحسين شريط التمرير */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* شارات المواد الملونة */
+.badge-waste {
+  background-color: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+.badge-sand-white {
+  background-color: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+.badge-sand-red {
+  background-color: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+.badge-gravel {
+  background-color: #f8fafc;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+.badge-soil {
+  background-color: #fefce8;
+  color: #a16207;
+  border: 1px solid #fef08a;
+}
+.badge-other {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+/* شرائح الاختيار السريع Quick Chips */
+.quick-chip {
+  transition: all 0.15s ease-in-out;
+  user-select: none;
+}
+.quick-chip:hover {
+  transform: translateY(-1px);
+}
+.quick-chip.active {
+  background-color: #0284c7;
+  color: #ffffff;
+  border-color: #0284c7;
+  box-shadow: 0 2px 4px rgba(2, 132, 199, 0.25);
+}
+
+/* تحسين المدخلات */
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.2);
+}
+
+/* بطاقات الإحصاءات وتأثيرات الظل */
+.stat-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08);
+}
+
+/* إشعارات التوست Toast */
+#toast-container {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 1.5rem;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateY(1rem);
+  opacity: 0;
+}
+.toast.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* نافذة الطباعة المخصصة A4 */
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-size: 12pt;
+  }
+  
+  /* إخفاء كل العناصر عدا منطقة الطباعة عند طلب طباعة كشف الحساب */
+  .no-print,
+  #quick-entry-section,
+  #stats-section,
+  #controls-header,
+  #tabs-navigation,
+  #toast-container,
+  nav,
+  footer,
+  .action-buttons {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .print-page {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 10mm !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  th, td {
+    border: 1px solid #333 !important;
+    padding: 6px 8px !important;
+    color: #000 !important;
+  }
+
+  th {
+    background-color: #f1f5f9 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .print-header {
+    border-bottom: 2px solid #000;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+  }
+}
+
+.print-only {
+  display: none;
+}
+
+/* أنيميشن ناعم للظهور */
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.customer-statement-modal[hidden] {
+  display: none !important;
+}
+
+.customer-statement-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  overflow-y: auto;
+  background: rgb(15 23 42 / 75%);
+  direction: rtl;
+}
+
+.customer-statement-dialog {
+  width: min(100%, 900px);
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 25%);
+}
+
+.customer-statement-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .85rem 1rem;
+  background: #0c4a6e;
+  color: #fff;
+}
+
+.customer-statement-toolbar h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.customer-statement-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.customer-statement-print-btn,
+.customer-statement-close-btn {
+  min-height: 2.75rem;
+  border: 0;
+  border-radius: .65rem;
+  font: 800 .875rem var(--font-arabic);
+  cursor: pointer;
+}
+
+.customer-statement-print-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  padding: .5rem 1rem;
+  background: #047857;
+  color: #fff;
+}
+
+.customer-statement-close-btn {
+  width: 2.75rem;
+  background: #334155;
+  color: #fff;
+}
+
+.customer-statement-page {
+  max-width: 210mm;
+  min-height: 180mm;
+  margin: 1.25rem auto;
+  padding: 14mm;
+  background: #fff;
+  color: #111827;
+  font-family: var(--font-arabic);
+}
+
+.customer-statement-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #0c4a6e;
+}
+
+.customer-statement-brand-mark {
+  display: flex;
+  flex: 0 0 3.5rem;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: .85rem;
+  background: #0c4a6e;
+  color: #fff;
+  font-size: 1.5rem;
+}
+
+.customer-statement-header h1 {
+  margin: .15rem 0;
+  color: #0c4a6e;
+  font-size: clamp(1.05rem, 3vw, 1.55rem);
+  font-weight: 900;
+}
+
+.customer-statement-header p {
+  margin: .15rem 0;
+  color: #475569;
+  font-size: .78rem;
+}
+
+.customer-statement-header .customer-statement-kicker {
+  color: #b45309;
+  font-size: .7rem;
+  font-weight: 900;
+}
+
+.customer-statement-meta {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr .7fr;
+  gap: .75rem;
+  margin: 1.25rem 0;
+  padding: .9rem;
+  border: 1px solid #cbd5e1;
+  border-radius: .65rem;
+  background: #f8fafc;
+}
+
+.customer-statement-meta div {
+  min-width: 0;
+}
+
+.customer-statement-meta span,
+.customer-statement-meta strong {
+  display: block;
+}
+
+.customer-statement-meta span {
+  margin-bottom: .25rem;
+  color: #475569;
+  font-size: .7rem;
+  font-weight: 700;
+}
+
+.customer-statement-meta strong {
+  overflow-wrap: anywhere;
+  color: #0f172a;
+  font-size: .9rem;
+  font-weight: 900;
+}
+
+.customer-statement-table-wrap {
+  overflow-x: auto;
+}
+
+.customer-statement-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .78rem;
+}
+
+.customer-statement-table th,
+.customer-statement-table td {
+  padding: .55rem .5rem;
+  border: 1px solid #cbd5e1;
+  text-align: right;
+  vertical-align: top;
+}
+
+.customer-statement-table thead th,
+.customer-statement-table tfoot th {
+  background: #e2e8f0;
+  color: #0f172a;
+  font-weight: 900;
+}
+
+.customer-statement-table tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+.customer-statement-table .statement-number,
+.customer-statement-table .statement-money {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.customer-statement-details {
+  margin-top: .2rem;
+  color: #475569;
+  font-size: .68rem;
+  line-height: 1.5;
+}
+
+.customer-statement-empty {
+  padding: 1.5rem !important;
+  color: #64748b;
+  text-align: center !important;
+}
+
+.customer-statement-balance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  padding: 1rem 1.15rem;
+  border: 2px solid #0c4a6e;
+  border-radius: .75rem;
+  background: #eff6ff;
+}
+
+.customer-statement-balance span,
+.customer-statement-balance small {
+  display: block;
+}
+
+.customer-statement-balance span {
+  color: #0f172a;
+  font-size: .9rem;
+  font-weight: 900;
+}
+
+.customer-statement-balance small {
+  margin-top: .2rem;
+  color: #475569;
+  font-size: .68rem;
+}
+
+.customer-statement-balance strong {
+  color: #b91c1c;
+  font-size: 1.3rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.customer-statement-footer {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+  margin-top: 2rem;
+  padding-top: .75rem;
+  border-top: 1px solid #cbd5e1;
+  color: #64748b;
+  font-size: .65rem;
+}
+
+@media (max-width: 560px) {
+  .customer-statement-modal {
+    padding: .4rem;
+    align-items: flex-start;
+  }
+
+  .customer-statement-dialog {
+    max-height: calc(100vh - .8rem);
+    border-radius: .75rem;
+  }
+
+  .customer-statement-page {
+    margin: .5rem auto;
+    padding: 1rem .75rem;
+  }
+
+  .customer-statement-meta {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .customer-statement-meta div:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .customer-statement-table {
+    min-width: 580px;
+  }
+}
+
+@page {
+  size: A4 portrait;
+  margin: 12mm;
+}
+
+@media print {
+  body.printing-customer-statement {
+    display: block !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    color: #111827 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  body.printing-customer-statement > :not(#customer-statement-modal) {
+    display: none !important;
+  }
+
+  body.printing-customer-statement #customer-statement-modal {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  body.printing-customer-statement .customer-statement-dialog {
+    width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  body.printing-customer-statement .customer-statement-toolbar,
+  body.printing-customer-statement .no-print {
+    display: none !important;
+  }
+
+  body.printing-customer-statement .customer-statement-page {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  body.printing-customer-statement .customer-statement-table-wrap {
+    overflow: visible !important;
+  }
+
+  body.printing-customer-statement .customer-statement-table {
+    min-width: 0 !important;
+    font-size: 9pt !important;
+  }
+
+  body.printing-customer-statement .customer-statement-table thead {
+    display: table-header-group;
+  }
+
+  body.printing-customer-statement .customer-statement-table tfoot {
+    display: table-footer-group;
+  }
+
+  body.printing-customer-statement .customer-statement-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  body.printing-customer-statement .customer-statement-balance,
+  body.printing-customer-statement .customer-statement-header,
+  body.printing-customer-statement .customer-statement-meta {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}

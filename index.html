@@ -10,8 +10,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="شركة سعد القحطاني">
   <link rel="manifest" href="./manifest.json">
-  <link rel="apple-touch-icon" href="./assets/icon-192.png">
-  <link rel="icon" type="image/png" sizes="192x192" href="./assets/icon-192.png">
+  <link rel="apple-touch-icon" href="./assets/icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="./assets/icons/icon-192.png">
   <script>
     try {
       if (localStorage.getItem('dad_transport_pin_v1')) {
@@ -264,7 +264,7 @@
         </div>
       </div>
 
-      <!-- إجمالي نقلات المخلفات (الأكثر طلباً للشركات كـ البيوت الاقتصادية) -->
+      <!-- إجمالي نقلات المخلفات -->
       <div class="stat-card bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-sm flex items-center justify-between">
         <div>
           <p class="text-xs sm:text-sm font-semibold text-slate-500 mb-1">نقلات المخلفات (شهرياً)</p>
@@ -276,12 +276,12 @@
         </div>
       </div>
 
-      <!-- نقلات شركة البيوت الاقتصادية أو العميل النشط -->
+      <!-- نقلات المواد والخدمات الأخرى -->
       <div class="stat-card bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-sm flex items-center justify-between">
         <div>
-          <p class="text-xs sm:text-sm font-semibold text-slate-500 mb-1">نقلات "البيوت الاقتصادية"</p>
+          <p class="text-xs sm:text-sm font-semibold text-slate-500 mb-1">نقلات المواد والخدمات الأخرى</p>
           <h3 id="stat-corporate-trips" class="text-2xl sm:text-3xl font-extrabold text-amber-600">0</h3>
-          <p class="text-xs text-amber-600 mt-1 font-medium">كشف الحساب الشهري</p>
+          <p class="text-xs text-amber-600 mt-1 font-medium">باستثناء نقل المخلفات</p>
         </div>
         <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-xl">
           <i class="fa-solid fa-building-wheat"></i>
@@ -333,7 +333,7 @@
               </button>
             </div>
             <select id="client-select" required class="w-full h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 font-medium focus:bg-white transition text-sm">
-              <!-- يعبأ تلقائياً بالعملاء مثل "البيوت الاقتصادية" -->
+              <!-- تُملأ بالعملاء المسجلين -->
             </select>
           </div>
 
@@ -580,7 +580,7 @@
               <i class="fa-solid fa-file-lines text-brand-600"></i>
               <span>كشف حساب شهري مخصص للعملاء والشركات</span>
             </h2>
-            <p class="text-xs text-slate-500 mt-0.5">مخصص لحصر نقلات المخلفات والمواد للفوترة الشهرية السريعة (مثل شركة البيوت الاقتصادية)</p>
+            <p class="text-xs text-slate-500 mt-0.5">مخصص لحصر نقلات المخلفات والمواد للفوترة الشهرية</p>
           </div>
 
           <!-- أدوات تحديد كشف الحساب -->
@@ -628,7 +628,7 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-slate-100/70 p-4 rounded-xl text-sm">
               <div>
                 <span class="text-xs text-slate-500 block font-semibold">الجهة / اسم العميل:</span>
-                <span id="stmt-client-name" class="font-black text-base text-slate-900">البيوت الاقتصادية</span>
+                <span id="stmt-client-name" class="font-black text-base text-slate-900">—</span>
               </div>
               <div>
                 <span class="text-xs text-slate-500 block font-semibold">فترة الكشف:</span>

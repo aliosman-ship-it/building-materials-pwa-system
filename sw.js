@@ -1,12 +1,12 @@
-const CACHE_NAME = 'saad-alqahtani-app-v3';
+const CACHE_NAME = 'saad-alqahtani-app-v5';
 const CORE_FILES = [
   './',
   './index.html',
   './manifest.json',
   './CSS/style.css',
   './JS/script.js',
-  './assets/icon-192.png',
-  './assets/icon-512.png'
+  './assets/icons/icon-192.png',
+  './assets/icons/icon-512.png'
 ];
 
 self.addEventListener('install', event => {

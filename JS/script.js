@@ -3,38 +3,6 @@
  * سجل النقليات والفوترة الشهرية
  */
 
-// قائمة المواد والخدمات المعتمدة مع الأسعار الافتراضية التلقائية
-const DEFAULT_MATERIALS = [
-  { name: 'نقل مخلفات', icon: 'fa-dumpster', badgeClass: 'badge-waste', defaultPrice: 250 },
-  { name: 'رمل أبيض لياسة', icon: 'fa-cubes-stacked', badgeClass: 'badge-sand-white', defaultPrice: 450 },
-  { name: 'رمل أبيض بناء', icon: 'fa-trowel-bricks', badgeClass: 'badge-sand-white', defaultPrice: 400 },
-  { name: 'رمل أحمر نفود', icon: 'fa-mound', badgeClass: 'badge-sand-red', defaultPrice: 350 },
-  { name: 'بحص 3/4', icon: 'fa-gem', badgeClass: 'badge-gravel', defaultPrice: 500 },
-  { name: 'بحص 3/8', icon: 'fa-circle', badgeClass: 'badge-gravel', defaultPrice: 500 },
-  { name: 'بحص زيرو', icon: 'fa-circle-dot', badgeClass: 'badge-gravel', defaultPrice: 550 },
-  { name: 'دفان بلاط', icon: 'fa-layer-group', badgeClass: 'badge-gravel', defaultPrice: 300 },
-  { name: 'تربة زراعية', icon: 'fa-seedling', badgeClass: 'badge-soil', defaultPrice: 600 },
-  { name: 'طرطشة', icon: 'fa-spray-can-sparkles', badgeClass: 'badge-other', defaultPrice: 420 }
-];
-
-// العملاء الافتراضيون
-const DEFAULT_CLIENTS = [
-  'البيوت الاقتصادية',
-  'شركة إعمار للمقاولات',
-  'مؤسسة البناء الحديث',
-  'شركة درة الرياض للمشاريع',
-  'أعمال حفر وهدم ونقل عام'
-];
-
-// الشاحنات الافتراضية
-const DEFAULT_TRUCKS = [
-  'تريلا 1 - 4022',
-  'قلاب 2 - 8190',
-  'تريلا 3 - 5510',
-  'وايت / قلاب 4',
-  'تريلا 5 - 9301'
-];
-
 // مفاتيح التخزين المحلي
 const STORAGE_KEYS = {
   TRIPS: 'dad_transport_trips_v1',
@@ -198,94 +166,78 @@ function registerServiceWorker() {
    ========================================================= */
 
 function initStorage() {
-  const storedMaterials = localStorage.getItem(STORAGE_KEYS.MATERIALS);
-  if (storedMaterials) {
-    try {
-      const parsedMaterials = JSON.parse(storedMaterials);
-      state.materials = Array.isArray(parsedMaterials)
-        ? parsedMaterials.filter(material =>
-            material &&
-            typeof material.name === 'string' &&
-            material.name.trim() &&
-            Number.isFinite(Number(material.defaultPrice)) &&
-            Number(material.defaultPrice) >= 0
-          ).map(material => {
-            const defaultMaterial = DEFAULT_MATERIALS.find(item => item.name === material.name);
-            return {
-              name: material.name.trim(),
-              defaultPrice: Number(material.defaultPrice),
-              icon: defaultMaterial?.icon || 'fa-cubes-stacked',
-              badgeClass: defaultMaterial?.badgeClass || 'badge-other'
-            };
-          })
-        : [...DEFAULT_MATERIALS];
-      if (!state.materials.length) state.materials = [...DEFAULT_MATERIALS];
-    } catch (e) {
-      state.materials = [...DEFAULT_MATERIALS];
-    }
-  } else {
-    state.materials = [...DEFAULT_MATERIALS];
-    saveMaterials();
-  }
+  state.materials = readStoredArray(STORAGE_KEYS.MATERIALS, 'المواد').filter(material =>
+    material &&
+    typeof material.name === 'string' &&
+    material.name.trim() &&
+    Number.isFinite(Number(material.defaultPrice)) &&
+    Number(material.defaultPrice) >= 0
+  ).map(material => ({
+    name: material.name.trim(),
+    defaultPrice: Number(material.defaultPrice),
+    icon: typeof material.icon === 'string' && /^fa-[a-z0-9-]+$/.test(material.icon)
+      ? material.icon
+      : 'fa-cubes-stacked',
+    badgeClass: typeof material.badgeClass === 'string' && /^badge-[a-z0-9-]+$/.test(material.badgeClass)
+      ? material.badgeClass
+      : 'badge-other'
+  }));
 
-  // استرجاع أو تهيئة العملاء
-  const storedClients = localStorage.getItem(STORAGE_KEYS.CLIENTS);
-  if (storedClients) {
-    try {
-      state.clients = JSON.parse(storedClients);
-    } catch (e) {
-      state.clients = [...DEFAULT_CLIENTS];
-    }
-  } else {
-    state.clients = [...DEFAULT_CLIENTS];
-    saveClients();
-  }
+  state.clients = readStoredArray(STORAGE_KEYS.CLIENTS, 'العملاء')
+    .filter(client => typeof client === 'string' && client.trim())
+    .map(client => client.trim());
+  state.accounts = normalizeAccounts(readStoredArray(STORAGE_KEYS.ACCOUNTS, 'حسابات العملاء'));
+  state.trucks = readStoredArray(STORAGE_KEYS.TRUCKS, 'الشاحنات')
+    .filter(truck => typeof truck === 'string' && truck.trim())
+    .map(truck => truck.trim());
+  state.trips = readStoredArray(STORAGE_KEYS.TRIPS, 'النقلات')
+    .filter(trip => trip && typeof trip === 'object' && !Array.isArray(trip))
+    .map(trip => {
+      const count = Number.parseInt(trip.count, 10) || 1;
+      const defaultPrice = state.materials.find(material => material.name === trip.material)?.defaultPrice || 0;
+      const price = trip.price !== null && Number.isFinite(Number(trip.price)) ? Number(trip.price) : defaultPrice;
+      const total = trip.total !== null && Number.isFinite(Number(trip.total)) ? Number(trip.total) : count * price;
+      return {
+        ...trip,
+        id: typeof trip.id === 'string' && trip.id ? trip.id : `trip_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        date: typeof trip.date === 'string' ? trip.date : '',
+        client: typeof trip.client === 'string' ? trip.client : '',
+        material: typeof trip.material === 'string' ? trip.material : '',
+        count,
+        price,
+        total,
+        truck: typeof trip.truck === 'string' ? trip.truck : '',
+        notes: typeof trip.notes === 'string' ? trip.notes : ''
+      };
+    });
 
-  const storedAccounts = localStorage.getItem(STORAGE_KEYS.ACCOUNTS);
-  if (storedAccounts) {
-    try {
-      state.accounts = normalizeAccounts(JSON.parse(storedAccounts));
-    } catch (e) {
-      state.accounts = [];
-    }
-  } else {
-    state.accounts = [];
-    saveAccounts();
-  }
+  saveMaterials();
+  saveClients();
+  saveAccounts();
+  saveTrucks();
+  saveTrips();
+}
 
-  // استرجاع الشاحنات
-  const storedTrucks = localStorage.getItem(STORAGE_KEYS.TRUCKS);
-  if (storedTrucks) {
-    try {
-      state.trucks = JSON.parse(storedTrucks);
-    } catch (e) {
-      state.trucks = [...DEFAULT_TRUCKS];
+function readStoredArray(key, label) {
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored === null) {
+      localStorage.setItem(key, '[]');
+      return [];
     }
-  } else {
-    state.trucks = [...DEFAULT_TRUCKS];
-    saveTrucks();
-  }
 
-  // استرجاع النقلات
-  const storedTrips = localStorage.getItem(STORAGE_KEYS.TRIPS);
-  if (storedTrips) {
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) throw new TypeError('المحتوى المخزن ليس قائمة.');
+    return parsed;
+  } catch (error) {
+    console.error(`تعذر تحميل ${label} من التخزين المحلي، تمت تهيئة قائمة فارغة:`, error);
     try {
-      state.trips = JSON.parse(storedTrips);
-      // التأكد من ملء السعر والإجمالي لكافة النقلات المحفوظة مسبقاً لضمان التوافق التام
-      state.trips = state.trips.map(t => {
-        const count = typeof t.count === 'number' ? t.count : (parseInt(t.count, 10) || 1);
-        const defPrice = state.materials.find(m => m.name === t.material)?.defaultPrice || 0;
-        const price = typeof t.price === 'number' ? t.price : (parseFloat(t.price) || defPrice);
-        const total = typeof t.total === 'number' ? t.total : (count * price);
-        return { ...t, count, price, total };
-      });
-    } catch (e) {
-      state.trips = [];
+      localStorage.setItem(key, '[]');
+    } catch (storageError) {
+      console.error(`تعذر حفظ القائمة الفارغة لـ${label}:`, storageError);
     }
-  } else {
-    // تحميل بيانات نموذجية لتوضيح كفاءة النظام فوراً
-    loadSampleTrips();
-    saveTrips();
+    showToast(`تعذر قراءة بيانات ${label}؛ تم بدء قائمة فارغة.`, 'warning');
+    return [];
   }
 }
 
@@ -450,88 +402,24 @@ function lockApplication() {
   document.getElementById('pin-unlock-input').focus();
 }
 
-function saveTrips() {
-  localStorage.setItem(STORAGE_KEYS.TRIPS, JSON.stringify(state.trips));
+function saveTrips(trips = state.trips) {
+  localStorage.setItem(STORAGE_KEYS.TRIPS, JSON.stringify(trips));
 }
 
-function saveClients() {
-  localStorage.setItem(STORAGE_KEYS.CLIENTS, JSON.stringify(state.clients));
+function saveClients(clients = state.clients) {
+  localStorage.setItem(STORAGE_KEYS.CLIENTS, JSON.stringify(clients));
 }
 
-function saveMaterials() {
-  localStorage.setItem(STORAGE_KEYS.MATERIALS, JSON.stringify(state.materials));
+function saveMaterials(materials = state.materials) {
+  localStorage.setItem(STORAGE_KEYS.MATERIALS, JSON.stringify(materials));
 }
 
 function saveTrucks() {
   localStorage.setItem(STORAGE_KEYS.TRUCKS, JSON.stringify(state.trucks));
 }
 
-function saveAccounts() {
-  localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(state.accounts));
-}
-
-function loadSampleTrips() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  
-  state.trips = [
-    {
-      id: 'trip_' + Date.now() + '_1',
-      date: `${year}-${month}-02`,
-      client: 'البيوت الاقتصادية',
-      material: 'نقل مخلفات',
-      truck: 'تريلا 1 - 4022',
-      count: 2,
-      price: 250,
-      total: 500,
-      notes: 'مشروع النرجس - بون رقم 201'
-    },
-    {
-      id: 'trip_' + Date.now() + '_2',
-      date: `${year}-${month}-03`,
-      client: 'البيوت الاقتصادية',
-      material: 'نقل مخلفات',
-      truck: 'قلاب 2 - 8190',
-      count: 1,
-      price: 250,
-      total: 250,
-      notes: 'مشروع الياسمين'
-    },
-    {
-      id: 'trip_' + Date.now() + '_3',
-      date: `${year}-${month}-04`,
-      client: 'شركة إعمار للمقاولات',
-      material: 'رمل أبيض لياسة',
-      truck: 'تريلا 1 - 4022',
-      count: 1,
-      price: 450,
-      total: 450,
-      notes: 'موقع العارض'
-    },
-    {
-      id: 'trip_' + Date.now() + '_4',
-      date: `${year}-${month}-05`,
-      client: 'البيوت الاقتصادية',
-      material: 'نقل مخلفات',
-      truck: 'تريلا 3 - 5510',
-      count: 2,
-      price: 250,
-      total: 500,
-      notes: 'موقع النرجس - ردين'
-    },
-    {
-      id: 'trip_' + Date.now() + '_5',
-      date: `${year}-${month}-06`,
-      client: 'البيوت الاقتصادية',
-      material: 'رمل أحمر نفود',
-      truck: 'تريلا 1 - 4022',
-      count: 1,
-      price: 350,
-      total: 350,
-      notes: 'دفان موقع 4'
-    }
-  ];
+function saveAccounts(accounts = state.accounts) {
+  localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(accounts));
 }
 
 /* =========================================================
@@ -687,9 +575,9 @@ function renderMaterialSelects(previousName = '', replacementName = '') {
     }
   };
 
-  fillSelect(mainSelect, state.materials, '', currentMainValue);
+  fillSelect(mainSelect, state.materials, 'أضف مادة من إدارة المواد أولاً', currentMainValue);
   fillSelect(filterSelect, [...state.materials, ...historicalMaterials], 'كل المواد والخدمات', currentFilterValue);
-  fillSelect(editSelect, [...state.materials, ...historicalMaterials], '', currentEditValue);
+  fillSelect(editSelect, [...state.materials, ...historicalMaterials], 'لا توجد مواد مسجلة', currentEditValue);
 }
 
 function renderClientSelects() {
@@ -705,15 +593,14 @@ function renderClientSelects() {
     const currentVal = select.value;
     const isFilter = select.id === 'filter-client';
 
-    select.innerHTML = isFilter ? '<option value="">كل العملاء</option>' : '';
+    select.innerHTML = isFilter
+      ? '<option value="">كل العملاء</option>'
+      : `<option value="">${select.id === 'statement-client-select' ? 'اختر العميل' : 'أضف عميلاً من إدارة العملاء أولاً'}</option>`;
 
     state.clients.forEach(client => {
       const opt = document.createElement('option');
       opt.value = client;
       opt.textContent = client;
-      if (client === 'البيوت الاقتصادية' && !isFilter && !currentVal) {
-        opt.selected = true;
-      }
       select.appendChild(opt);
     });
 
@@ -729,7 +616,7 @@ function renderTruckSuggestions() {
   const datalist = document.getElementById('truck-suggestions');
   if (!datalist) return;
 
-  // جمع كافة الشاحنات من السجل بالإضافة للخيارات الافتراضية
+  // جمع الشاحنات المحفوظة والسيارات التي ظهرت في سجل النقلات.
   const allTrucks = new Set([...state.trucks, ...state.trips.map(t => t.truck)]);
 
   datalist.innerHTML = '';
@@ -749,15 +636,22 @@ function renderClientsModalList() {
   state.clients.forEach(client => {
     const li = document.createElement('li');
     li.className = 'px-3 py-2.5 flex items-center justify-between text-xs font-semibold text-slate-800';
-    li.innerHTML = `
-      <div class="flex items-center gap-2">
-        <i class="fa-solid fa-user-check text-emerald-500"></i>
-        <span>${escapeHtml(client)}</span>
-      </div>
-      <button type="button" class="text-rose-500 hover:text-rose-700 p-1" title="حذف العميل" onclick="deleteClient('${escapeHtml(client)}')">
-        <i class="fa-solid fa-trash-can"></i>
-      </button>
-    `;
+    const details = document.createElement('div');
+    details.className = 'flex items-center gap-2';
+    const icon = document.createElement('i');
+    icon.className = 'fa-solid fa-user-check text-emerald-500';
+    const name = document.createElement('span');
+    name.textContent = client;
+    details.append(icon, name);
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'min-w-10 min-h-10 text-rose-700 hover:bg-rose-50 rounded-lg';
+    deleteButton.title = 'حذف العميل';
+    deleteButton.setAttribute('aria-label', `حذف العميل ${client}`);
+    deleteButton.dataset.clientDelete = client;
+    deleteButton.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
+    li.append(details, deleteButton);
     list.appendChild(li);
   });
 }
@@ -799,7 +693,7 @@ function renderMaterialsModalList() {
     deleteButton.title = 'حذف المادة';
     deleteButton.setAttribute('aria-label', `حذف ${material.name}`);
     deleteButton.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
-    deleteButton.addEventListener('click', () => window.deleteMaterial(material.name));
+    deleteButton.dataset.materialDelete = material.name;
     actions.append(editButton, deleteButton);
     item.append(details, actions);
     list.appendChild(item);
@@ -811,6 +705,51 @@ function renderMaterialsModalList() {
    ========================================================= */
 
 function initEventListeners() {
+  const tripsTbody = document.getElementById('trips-tbody');
+  if (tripsTbody) {
+    tripsTbody.addEventListener('click', event => {
+      const button = event.target.closest('button[data-trip-action]');
+      if (!button || !tripsTbody.contains(button)) return;
+      const { tripAction, tripId } = button.dataset;
+      if (tripAction === 'delete') deleteTrip(tripId);
+      if (tripAction === 'edit') window.openEditModal(tripId);
+    });
+  }
+
+  const accountsTbody = document.getElementById('accounts-tbody');
+  if (accountsTbody) {
+    accountsTbody.addEventListener('click', event => {
+      const button = event.target.closest('button[data-account-action]');
+      if (!button || !accountsTbody.contains(button)) return;
+      const { accountAction, accountId, transactionId } = button.dataset;
+      const account = state.accounts.find(item => item.id === accountId);
+      if (!account) return;
+
+      if (accountAction === 'debt') startAccountTransaction(account.client, 'debt');
+      if (accountAction === 'payment') startAccountTransaction(account.client, 'payment');
+      if (accountAction === 'statement') openCustomerStatement(accountId);
+      if (accountAction === 'delete') deleteAccount(accountId);
+      if (accountAction === 'history') toggleAccountHistory(account, button.closest('tr'));
+      if (accountAction === 'delete-transaction') deleteAccountTransaction(accountId, transactionId);
+    });
+  }
+
+  const clientsList = document.getElementById('clients-list');
+  if (clientsList) {
+    clientsList.addEventListener('click', event => {
+      const button = event.target.closest('button[data-client-delete]');
+      if (button && clientsList.contains(button)) deleteClient(button.dataset.clientDelete);
+    });
+  }
+
+  const materialsList = document.getElementById('materials-list');
+  if (materialsList) {
+    materialsList.addEventListener('click', event => {
+      const button = event.target.closest('button[data-material-delete]');
+      if (button && materialsList.contains(button)) deleteMaterial(button.dataset.materialDelete);
+    });
+  }
+
   const pinSettingsBtn = document.getElementById('pin-settings-btn');
   const lockAppBtn = document.getElementById('lock-app-btn');
   const pinSettingsForm = document.getElementById('pin-settings-form');
@@ -1066,7 +1005,7 @@ function handleSaveTrip(e) {
 function resetTripForm() {
   document.getElementById('trip-form').reset();
   initFormDefaults();
-  selectMaterial('نقل مخلفات');
+  selectMaterial(state.materials[0]?.name || '');
   updateRealtimeTotal();
   showToast('تمت إعادة ضبط حقول النموذج', 'info');
 }
@@ -1231,32 +1170,37 @@ function renderAccountLedger() {
     debtButton.type = 'button';
     debtButton.className = 'min-h-10 px-3 text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg transition text-xs font-bold whitespace-nowrap';
     debtButton.textContent = 'دين جديد';
-    debtButton.addEventListener('click', () => startAccountTransaction(account.client, 'debt'));
+    debtButton.dataset.accountAction = 'debt';
+    debtButton.dataset.accountId = account.id;
     const paymentButton = document.createElement('button');
     paymentButton.type = 'button';
     paymentButton.className = 'min-h-10 px-3 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition text-xs font-bold whitespace-nowrap';
     paymentButton.textContent = 'تسجيل دفعة';
-    paymentButton.addEventListener('click', () => startAccountTransaction(account.client, 'payment'));
+    paymentButton.dataset.accountAction = 'payment';
+    paymentButton.dataset.accountId = account.id;
     const deleteButton = document.createElement('button');
     deleteButton.type = 'button';
     deleteButton.className = 'min-w-10 min-h-10 text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg transition';
     deleteButton.title = 'حذف الحساب وسجل معاملاته';
     deleteButton.setAttribute('aria-label', `حذف حساب ${account.client} وسجل معاملاته`);
     deleteButton.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
-    deleteButton.addEventListener('click', () => deleteAccount(account.id));
+    deleteButton.dataset.accountAction = 'delete';
+    deleteButton.dataset.accountId = account.id;
     const statementButton = document.createElement('button');
     statementButton.type = 'button';
     statementButton.className = 'min-w-10 min-h-10 text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg transition';
     statementButton.title = 'عرض وطباعة كشف حساب العميل';
     statementButton.setAttribute('aria-label', `كشف حساب ${account.client}`);
     statementButton.innerHTML = '<i class="fa-solid fa-file-invoice"></i>';
-    statementButton.addEventListener('click', () => openCustomerStatement(account.id));
+    statementButton.dataset.accountAction = 'statement';
+    statementButton.dataset.accountId = account.id;
     actions.append(debtButton, paymentButton, statementButton, deleteButton);
     const historyButton = document.createElement('button');
     historyButton.type = 'button';
     historyButton.className = 'min-h-10 px-3 text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition text-xs font-bold whitespace-nowrap';
     historyButton.textContent = 'سجل المعاملات';
-    historyButton.addEventListener('click', () => toggleAccountHistory(account, row));
+    historyButton.dataset.accountAction = 'history';
+    historyButton.dataset.accountId = account.id;
     actions.appendChild(historyButton);
     actionsCell.appendChild(actions);
     row.appendChild(actionsCell);
@@ -1437,7 +1381,9 @@ function toggleAccountHistory(account, row) {
     deleteButton.type = 'button';
     deleteButton.className = 'min-h-9 px-3 text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg text-xs font-bold';
     deleteButton.textContent = 'حذف المعاملة';
-    deleteButton.addEventListener('click', () => deleteAccountTransaction(account.id, transaction.id));
+    deleteButton.dataset.accountAction = 'delete-transaction';
+    deleteButton.dataset.accountId = account.id;
+    deleteButton.dataset.transactionId = transaction.id;
     item.append(description, date, deleteButton);
     historyList.appendChild(item);
   });
@@ -1450,10 +1396,24 @@ function toggleAccountHistory(account, row) {
 function deleteAccountTransaction(accountId, transactionId) {
   const account = state.accounts.find(item => item.id === accountId);
   if (!account || !confirm('هل تريد حذف هذه المعاملة وإعادة حساب رصيد العميل؟')) return;
-  account.transactions = account.transactions.filter(transaction => transaction.id !== transactionId);
-  account.total = account.transactions.reduce((sum, transaction) => sum + (transaction.type === 'debt' ? transaction.amount : 0), 0);
-  account.paid = account.transactions.reduce((sum, transaction) => sum + (transaction.type === 'payment' ? transaction.amount : 0), 0);
-  saveAccounts();
+  const updatedAccounts = state.accounts.map(item => {
+    if (item.id !== accountId) return item;
+    const transactions = item.transactions.filter(transaction => transaction.id !== transactionId);
+    return {
+      ...item,
+      transactions,
+      total: transactions.reduce((sum, transaction) => sum + (transaction.type === 'debt' ? transaction.amount : 0), 0),
+      paid: transactions.reduce((sum, transaction) => sum + (transaction.type === 'payment' ? transaction.amount : 0), 0)
+    };
+  });
+  try {
+    saveAccounts(updatedAccounts);
+  } catch (error) {
+    console.error('تعذر حفظ حذف المعاملة:', error);
+    showToast('تعذر حفظ حذف المعاملة. تحقق من مساحة التخزين المتاحة.', 'error');
+    return;
+  }
+  state.accounts = updatedAccounts;
   renderAccountLedger();
   showToast('تم حذف المعاملة وإعادة احتساب الرصيد', 'info');
 }
@@ -1461,8 +1421,15 @@ function deleteAccountTransaction(accountId, transactionId) {
 function deleteAccount(id) {
   const account = state.accounts.find(item => item.id === id);
   if (!account || !confirm(`هل أنت متأكد من حذف حساب العميل "${account.client}"؟`)) return;
-  state.accounts = state.accounts.filter(item => item.id !== id);
-  saveAccounts();
+  const updatedAccounts = state.accounts.filter(item => item.id !== id);
+  try {
+    saveAccounts(updatedAccounts);
+  } catch (error) {
+    console.error('تعذر حفظ حذف الحساب:', error);
+    showToast('تعذر حفظ حذف الحساب. تحقق من مساحة التخزين المتاحة.', 'error');
+    return;
+  }
+  state.accounts = updatedAccounts;
   renderAccountLedger();
   showToast('تم حذف حساب العميل', 'info');
 }
@@ -1493,19 +1460,19 @@ function updateStats() {
   const currentMonthLoads = currentMonthTrips.reduce((acc, t) => acc + (t.count || 1), 0);
 
   // إجمالي نقلات المخلفات في الشهر الحالي
-  const wasteTrips = currentMonthTrips.filter(t => t.material.includes('مخلفات'));
+  const wasteTrips = currentMonthTrips.filter(t => String(t.material || '').includes('مخلفات'));
   const wasteLoads = wasteTrips.reduce((acc, t) => acc + (t.count || 1), 0);
 
-  // إجمالي نقلات شركة البيوت الاقتصادية في الشهر الحالي
-  const corporateTrips = currentMonthTrips.filter(t => t.client === 'البيوت الاقتصادية');
-  const corporateLoads = corporateTrips.reduce((acc, t) => acc + (t.count || 1), 0);
+  // إجمالي نقلات المواد والخدمات باستثناء المخلفات.
+  const otherMaterialTrips = currentMonthTrips.filter(t => !String(t.material || '').includes('مخلفات'));
+  const otherMaterialLoads = otherMaterialTrips.reduce((acc, t) => acc + (t.count || 1), 0);
 
   // الإجمالي التراكمي الكلي
   const totalLoads = state.trips.reduce((acc, t) => acc + (t.count || 1), 0);
 
   document.getElementById('stat-current-month-trips').textContent = `${currentMonthLoads}`;
   document.getElementById('stat-waste-trips').textContent = `${wasteLoads}`;
-  document.getElementById('stat-corporate-trips').textContent = `${corporateLoads}`;
+  document.getElementById('stat-corporate-trips').textContent = `${otherMaterialLoads}`;
   document.getElementById('stat-total-trips').textContent = `${totalLoads}`;
 
   // شارة العدد في التبويب
@@ -1579,7 +1546,7 @@ function renderTripsTable() {
       <td class="py-3 px-4 text-center font-bold text-slate-400 text-xs">${index + 1}</td>
       <td class="py-3 px-4 font-mono text-slate-700 whitespace-nowrap text-xs font-semibold">
         <i class="fa-regular fa-calendar text-slate-400 ml-1"></i>
-        ${trip.date}
+        ${escapeHtml(String(trip.date || '—'))}
       </td>
       <td class="py-3 px-4 font-bold text-slate-900">
         ${escapeHtml(trip.client)}
@@ -1607,10 +1574,10 @@ function renderTripsTable() {
       </td>
       <td class="py-3 px-4 text-center whitespace-nowrap action-buttons">
         <div class="inline-flex items-center gap-1">
-          <button type="button" class="p-1.5 text-slate-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition" title="تعديل النقلة" onclick="openEditModal('${trip.id}')">
+          <button type="button" class="p-1.5 text-slate-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition" title="تعديل النقلة" data-trip-action="edit" data-trip-id="${escapeHtml(String(trip.id || ''))}">
             <i class="fa-solid fa-pen-to-square text-xs"></i>
           </button>
-          <button type="button" class="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition" title="حذف النقلة" onclick="deleteTrip('${trip.id}')">
+          <button type="button" class="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition" title="حذف النقلة" data-trip-action="delete" data-trip-id="${escapeHtml(String(trip.id || ''))}">
             <i class="fa-solid fa-trash-can text-xs"></i>
           </button>
         </div>
@@ -1679,7 +1646,7 @@ function renderStatementView() {
   const clientSelect = document.getElementById('statement-client-select');
   const monthSelect = document.getElementById('statement-month-select');
 
-  const targetClient = clientSelect ? clientSelect.value || 'البيوت الاقتصادية' : 'البيوت الاقتصادية';
+  const targetClient = clientSelect ? clientSelect.value : '';
   const targetMonth = monthSelect ? monthSelect.value || getCurrentMonthString() : getCurrentMonthString();
 
   // تصفية النقلات التابعة لهذا العميل في هذا الشهر
@@ -1693,7 +1660,7 @@ function renderStatementView() {
   tripsForStmt.sort((a, b) => (a.date > b.date ? 1 : -1));
 
   // تحديث الترويسة
-  document.getElementById('stmt-client-name').textContent = targetClient;
+  document.getElementById('stmt-client-name').textContent = targetClient || '—';
   document.getElementById('stmt-issued-date').textContent = getTodayString();
   document.getElementById('stmt-reference').textContent = `INV-${targetMonth.replace('-', '')}-${Math.abs(hashString(targetClient)) % 1000}`;
 
@@ -1779,7 +1746,7 @@ function renderStatementView() {
       row.className = idx % 2 === 0 ? 'bg-white' : 'bg-slate-50';
       row.innerHTML = `
         <td class="p-2 border border-slate-200 text-center font-bold text-slate-400">${idx + 1}</td>
-        <td class="p-2 border border-slate-200 font-mono text-slate-800 whitespace-nowrap">${trip.date}</td>
+        <td class="p-2 border border-slate-200 font-mono text-slate-800 whitespace-nowrap">${escapeHtml(String(trip.date || '—'))}</td>
         <td class="p-2 border border-slate-200 font-bold text-slate-800">${escapeHtml(trip.material)}</td>
         <td class="p-2 border border-slate-200 font-mono text-slate-700">${escapeHtml(trip.truck || '-')}</td>
         <td class="p-2 border border-slate-200 text-center font-black text-brand-700">${trip.count || 1}</td>
@@ -1831,17 +1798,19 @@ function handleAddClient(e) {
 }
 
 window.deleteClient = function(name) {
-  if (state.clients.length <= 1) {
-    showToast('يجب أن يبقى عميل واحد على الأقل في القائمة!', 'warning');
-    return;
-  }
-
   if (!confirm(`هل أنت متأكد من حذف العميل "${name}" من القائمة؟`)) {
     return;
   }
 
-  state.clients = state.clients.filter(c => c !== name);
-  saveClients();
+  const updatedClients = state.clients.filter(client => client !== name);
+  try {
+    saveClients(updatedClients);
+  } catch (error) {
+    console.error('تعذر حفظ حذف العميل:', error);
+    showToast('تعذر حفظ حذف العميل. تحقق من مساحة التخزين المتاحة.', 'error');
+    return;
+  }
+  state.clients = updatedClients;
   renderClientSelects();
   showToast(`تم حذف العميل [${name}]`, 'info');
 };
@@ -1937,16 +1906,19 @@ function handleSaveMaterial(e) {
 }
 
 window.deleteMaterial = function(name) {
-  if (state.materials.length <= 1) {
-    showToast('يجب أن تبقى مادة واحدة على الأقل في القائمة!', 'warning');
-    return;
-  }
   if (!confirm(`هل أنت متأكد من حذف المادة "${name}" من القائمة؟ ستبقى النقلات السابقة محفوظة.`)) {
     return;
   }
 
-  state.materials = state.materials.filter(material => material.name !== name);
-  saveMaterials();
+  const updatedMaterials = state.materials.filter(material => material.name !== name);
+  try {
+    saveMaterials(updatedMaterials);
+  } catch (error) {
+    console.error('تعذر حفظ حذف المادة:', error);
+    showToast('تعذر حفظ حذف المادة. تحقق من مساحة التخزين المتاحة.', 'error');
+    return;
+  }
+  state.materials = updatedMaterials;
   renderMaterialSelects();
   initQuickChips();
   renderMaterialsModalList();
@@ -1968,7 +1940,7 @@ window.deleteMaterial = function(name) {
    تعديل وحذف النقلات
    ========================================================= */
 
-window.deleteTrip = function(id) {
+function deleteTrip(id) {
   const trip = state.trips.find(t => t.id === id);
   if (!trip) return;
 
@@ -1976,12 +1948,19 @@ window.deleteTrip = function(id) {
     return;
   }
 
-  state.trips = state.trips.filter(t => t.id !== id);
-  saveTrips();
+  const updatedTrips = state.trips.filter(t => t.id !== id);
+  try {
+    saveTrips(updatedTrips);
+  } catch (error) {
+    console.error('تعذر حفظ حذف النقلة:', error);
+    showToast('تعذر حفظ حذف النقلة. تحقق من مساحة التخزين المتاحة.', 'error');
+    return;
+  }
+  state.trips = updatedTrips;
   renderDashboard();
   renderStatementView();
   showToast('تم حذف النقلة من السجل', 'info');
-};
+}
 
 window.openEditModal = function(id) {
   const trip = state.trips.find(t => t.id === id);
@@ -2061,18 +2040,22 @@ function handleClearAll() {
     return;
   }
 
-  const code = Math.floor(1000 + Math.random() * 9000);
-  const entered = prompt(`تحذير: سيتم مسح كافة النقلات المسجلة نهائياً (${state.trips.length} نقلة).\n\nلتأكيد المسح، يرجى كتابة الرمز التالي: ${code}`);
-
-  if (entered === String(code)) {
-    state.trips = [];
-    saveTrips();
-    renderDashboard();
-    renderStatementView();
-    showToast('تم تفريغ سجل النقلات بالكامل', 'info');
-  } else if (entered !== null) {
-    showToast('رمز التأكيد غير صحيح، تم إلغاء المسح', 'error');
+  if (!confirm(`سيتم حذف جميع النقلات المسجلة (${state.trips.length} نقلة) نهائياً. هل تريد المتابعة؟`)) {
+    return;
   }
+
+  try {
+    saveTrips([]);
+  } catch (error) {
+    console.error('تعذر حفظ تفريغ سجل النقلات:', error);
+    showToast('تعذر مسح السجل. تحقق من مساحة التخزين المتاحة.', 'error');
+    return;
+  }
+
+  state.trips = [];
+  renderDashboard();
+  renderStatementView();
+  showToast('تم تفريغ سجل النقلات بالكامل', 'info');
 }
 
 /* =========================================================
@@ -2170,15 +2153,18 @@ function handleRestore(e) {
             Number.isFinite(Number(material.defaultPrice)) &&
             Number(material.defaultPrice) >= 0
           ).map(material => {
-            const defaultMaterial = DEFAULT_MATERIALS.find(item => item.name === material.name);
             return {
               name: material.name.trim(),
               defaultPrice: Number(material.defaultPrice),
-              icon: defaultMaterial?.icon || 'fa-cubes-stacked',
-              badgeClass: defaultMaterial?.badgeClass || 'badge-other'
+              icon: typeof material.icon === 'string' && /^fa-[a-z0-9-]+$/.test(material.icon)
+                ? material.icon
+                : 'fa-cubes-stacked',
+              badgeClass: typeof material.badgeClass === 'string' && /^badge-[a-z0-9-]+$/.test(material.badgeClass)
+                ? material.badgeClass
+                : 'badge-other'
             };
           });
-          state.materials = materials.length ? materials : [...DEFAULT_MATERIALS];
+          state.materials = materials;
         }
         if (Array.isArray(data.trucks)) state.trucks = data.trucks;
 

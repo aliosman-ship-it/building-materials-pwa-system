@@ -114,6 +114,11 @@ input:focus, select:focus, textarea:focus {
   opacity: 1;
 }
 
+/* عناصر الطباعة مخفية على الشاشة وتظهر عند الطباعة. */
+.print-only {
+  display: none;
+}
+
 /* نافذة الطباعة المخصصة A4 */
 @media print {
   body {
@@ -169,10 +174,6 @@ input:focus, select:focus, textarea:focus {
     margin-bottom: 15px;
     padding-bottom: 10px;
   }
-}
-
-.print-only {
-  display: none;
 }
 
 /* أنيميشن ناعم للظهور */

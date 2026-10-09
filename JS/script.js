@@ -13,6 +13,8 @@ const STORAGE_KEYS = {
 };
 const PIN_STORAGE_KEY = 'dad_transport_pin_v1';
 const PIN_ATTEMPTS_KEY = 'dad_transport_pin_attempts_v1';
+const BACKUP_REMINDER_KEY = 'dad_transport_backup_reminder_v1';
+const BACKUP_REMINDER_INTERVAL = 7 * 24 * 60 * 60 * 1000;
 const SW_CACHE_MESSAGE = 'تعذر تفعيل التخزين دون اتصال. افتح التطبيق عبر HTTPS أو localhost.';
 
 // حالة التطبيق
@@ -35,6 +37,7 @@ const state = {
 let applicationInitialized = false;
 let pinFailedAttempts = 0;
 let pinLockoutUntil = 0;
+const unreadableStorageKeys = new Set();
 
 // بدء الحماية أولاً قبل تحميل البيانات المالية في الواجهة.
 document.addEventListener('DOMContentLoaded', () => {
@@ -51,13 +54,13 @@ function initializeApplication() {
   initQuickChips();
   initEventListeners();
   renderClientSelects();
-  renderAccountClientSuggestions();
   renderAccountLedger();
   renderMaterialsModalList();
   renderTruckSuggestions();
   renderDashboard();
   renderStatementView();
   updatePinControls();
+  maybeShowBackupReminder();
 }
 
 async function initializePinGate() {
@@ -78,7 +81,7 @@ async function initializePinGate() {
     const submittedPin = pinInput.value;
     pinInput.value = '';
     try {
-      const currentRecord = localStorage.getItem(PIN_STORAGE_KEY);
+      const currentRecord = readStoredValue(PIN_STORAGE_KEY);
       if (!currentRecord) {
         screen.hidden = true;
         document.documentElement.classList.remove('pin-configured');
@@ -93,10 +96,10 @@ async function initializePinGate() {
           pinLockoutUntil = Date.now() + 30_000;
           pinFailedAttempts = 0;
         }
-        localStorage.setItem(PIN_ATTEMPTS_KEY, JSON.stringify({
+        writeStoredJson(PIN_ATTEMPTS_KEY, {
           count: pinFailedAttempts,
           lockoutUntil: pinLockoutUntil
-        }));
+        });
         errorElement.textContent = pinLockoutUntil > Date.now()
           ? 'تم إيقاف المحاولات مؤقتاً لمدة 30 ثانية.'
           : 'الرمز غير صحيح. حاول مرة أخرى.';
@@ -106,7 +109,11 @@ async function initializePinGate() {
 
       pinFailedAttempts = 0;
       pinLockoutUntil = 0;
-      localStorage.removeItem(PIN_ATTEMPTS_KEY);
+      try {
+        removeStoredValue(PIN_ATTEMPTS_KEY);
+      } catch (error) {
+        console.error('تعذر مسح محاولات PIN السابقة:', error);
+      }
       screen.hidden = true;
       document.documentElement.classList.remove('pin-configured');
       initializeApplication();
@@ -117,12 +124,18 @@ async function initializePinGate() {
   });
 
   try {
-    configuredPin = localStorage.getItem(PIN_STORAGE_KEY);
-    const storedAttempts = JSON.parse(localStorage.getItem(PIN_ATTEMPTS_KEY) || 'null');
+    configuredPin = readStoredValue(PIN_STORAGE_KEY);
+    const storedAttempts = JSON.parse(readStoredValue(PIN_ATTEMPTS_KEY) || 'null');
     if (storedAttempts && Number.isInteger(storedAttempts.count) && Number.isFinite(storedAttempts.lockoutUntil)) {
       pinFailedAttempts = Math.max(0, Math.min(storedAttempts.count, 4));
       pinLockoutUntil = storedAttempts.lockoutUntil > Date.now() ? storedAttempts.lockoutUntil : 0;
-      if (!pinLockoutUntil) localStorage.removeItem(PIN_ATTEMPTS_KEY);
+      if (!pinLockoutUntil) {
+        try {
+          removeStoredValue(PIN_ATTEMPTS_KEY);
+        } catch (error) {
+          console.error('تعذر مسح محاولات PIN المنتهية:', error);
+        }
+      }
     }
   } catch (error) {
     screen.hidden = false;
@@ -166,7 +179,23 @@ function registerServiceWorker() {
    ========================================================= */
 
 function initStorage() {
-  state.materials = readStoredArray(STORAGE_KEYS.MATERIALS, 'المواد').filter(material =>
+  state.materials = normalizeMaterials(readStoredArray(STORAGE_KEYS.MATERIALS, 'المواد'));
+
+  state.clients = readStoredArray(STORAGE_KEYS.CLIENTS, 'العملاء')
+    .filter(client => typeof client === 'string' && client.trim())
+    .map(client => client.trim());
+  state.accounts = normalizeAccounts(readStoredArray(STORAGE_KEYS.ACCOUNTS, 'حسابات العملاء'));
+  state.accounts.forEach(account => {
+    if (!state.clients.includes(account.client)) state.clients.push(account.client);
+  });
+  state.trucks = readStoredArray(STORAGE_KEYS.TRUCKS, 'الشاحنات')
+    .filter(truck => typeof truck === 'string' && truck.trim())
+    .map(truck => truck.trim());
+  state.trips = normalizeTrips(readStoredArray(STORAGE_KEYS.TRIPS, 'النقلات'), state.materials);
+}
+
+function normalizeMaterials(materials) {
+  return materials.filter(material =>
     material &&
     typeof material.name === 'string' &&
     material.name.trim() &&
@@ -182,19 +211,14 @@ function initStorage() {
       ? material.badgeClass
       : 'badge-other'
   }));
+}
 
-  state.clients = readStoredArray(STORAGE_KEYS.CLIENTS, 'العملاء')
-    .filter(client => typeof client === 'string' && client.trim())
-    .map(client => client.trim());
-  state.accounts = normalizeAccounts(readStoredArray(STORAGE_KEYS.ACCOUNTS, 'حسابات العملاء'));
-  state.trucks = readStoredArray(STORAGE_KEYS.TRUCKS, 'الشاحنات')
-    .filter(truck => typeof truck === 'string' && truck.trim())
-    .map(truck => truck.trim());
-  state.trips = readStoredArray(STORAGE_KEYS.TRIPS, 'النقلات')
+function normalizeTrips(trips, materials) {
+  return trips
     .filter(trip => trip && typeof trip === 'object' && !Array.isArray(trip))
     .map(trip => {
       const count = Number.parseInt(trip.count, 10) || 1;
-      const defaultPrice = state.materials.find(material => material.name === trip.material)?.defaultPrice || 0;
+      const defaultPrice = materials.find(material => material.name === trip.material)?.defaultPrice || 0;
       const price = trip.price !== null && Number.isFinite(Number(trip.price)) ? Number(trip.price) : defaultPrice;
       const total = trip.total !== null && Number.isFinite(Number(trip.total)) ? Number(trip.total) : count * price;
       return {
@@ -210,35 +234,52 @@ function initStorage() {
         notes: typeof trip.notes === 'string' ? trip.notes : ''
       };
     });
-
-  saveMaterials();
-  saveClients();
-  saveAccounts();
-  saveTrucks();
-  saveTrips();
 }
 
 function readStoredArray(key, label) {
+  let stored;
   try {
-    const stored = localStorage.getItem(key);
-    if (stored === null) {
-      localStorage.setItem(key, '[]');
-      return [];
-    }
+    stored = readStoredValue(key);
+  } catch (error) {
+    unreadableStorageKeys.add(key);
+    console.error(`تعذر تحميل ${label} من التخزين المحلي:`, error);
+    return [];
+  }
 
+  if (stored === null) {
+    return [];
+  }
+
+  try {
     const parsed = JSON.parse(stored);
     if (!Array.isArray(parsed)) throw new TypeError('المحتوى المخزن ليس قائمة.');
     return parsed;
   } catch (error) {
-    console.error(`تعذر تحميل ${label} من التخزين المحلي، تمت تهيئة قائمة فارغة:`, error);
-    try {
-      localStorage.setItem(key, '[]');
-    } catch (storageError) {
-      console.error(`تعذر حفظ القائمة الفارغة لـ${label}:`, storageError);
-    }
-    showToast(`تعذر قراءة بيانات ${label}؛ تم بدء قائمة فارغة.`, 'warning');
+    unreadableStorageKeys.add(key);
+    console.error(`تعذر تحليل بيانات ${label} من التخزين المحلي:`, error);
+    showToast(`تعذر قراءة بيانات ${label}؛ بقيت البيانات المخزنة دون تغيير.`, 'warning');
     return [];
   }
+}
+
+function readStoredValue(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch (error) {
+    unreadableStorageKeys.add(key);
+    reportStorageError('read', error);
+    throw error;
+  }
+}
+
+function reportStorageError(operation, error) {
+  const messages = {
+    read: 'تعذرت قراءة البيانات من التخزين المحلي.',
+    write: 'تعذر حفظ البيانات في التخزين المحلي. تحقق من مساحة التخزين المتاحة.',
+    remove: 'تعذر تحديث البيانات في التخزين المحلي.'
+  };
+  console.error(messages[operation], error);
+  showToast(messages[operation], 'error');
 }
 
 async function createPinRecord(pin) {
@@ -297,7 +338,7 @@ function updatePinControls() {
   const lockButton = document.getElementById('lock-app-btn');
   if (!lockButton) return;
   try {
-    lockButton.classList.toggle('hidden', !localStorage.getItem(PIN_STORAGE_KEY));
+    lockButton.classList.toggle('hidden', !readStoredValue(PIN_STORAGE_KEY));
   } catch (error) {
     lockButton.classList.add('hidden');
     console.error('تعذر قراءة إعدادات رمز PIN:', error);
@@ -309,7 +350,14 @@ function openPinSettings() {
   const currentField = document.getElementById('pin-current-field');
   const removeButton = document.getElementById('remove-pin-btn');
   const error = document.getElementById('pin-settings-error');
-  const isConfigured = Boolean(localStorage.getItem(PIN_STORAGE_KEY));
+  let isConfigured;
+  try {
+    isConfigured = Boolean(readStoredValue(PIN_STORAGE_KEY));
+  } catch (error) {
+    console.error('تعذر فتح إعدادات رمز PIN:', error);
+    document.getElementById('pin-settings-error').textContent = 'تعذر قراءة إعدادات التخزين المحلي.';
+    return;
+  }
 
   document.getElementById('pin-settings-form').reset();
   error.textContent = '';
@@ -334,7 +382,7 @@ async function handleSavePinSettings(event) {
   errorElement.textContent = '';
 
   try {
-    const storedPin = localStorage.getItem(PIN_STORAGE_KEY);
+    const storedPin = readStoredValue(PIN_STORAGE_KEY);
     if (storedPin) {
       const currentPin = document.getElementById('pin-current-input').value;
       if (!/^\d{4}$/.test(currentPin) || !(await verifyPin(currentPin, JSON.parse(storedPin)))) {
@@ -354,8 +402,12 @@ async function handleSavePinSettings(event) {
       return;
     }
 
-    localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify(await createPinRecord(newPin)));
-    localStorage.removeItem(PIN_ATTEMPTS_KEY);
+    writeStoredJson(PIN_STORAGE_KEY, await createPinRecord(newPin));
+    try {
+      removeStoredValue(PIN_ATTEMPTS_KEY);
+    } catch (error) {
+      console.error('تعذر مسح محاولات PIN بعد حفظ الرمز:', error);
+    }
     closePinSettings();
     updatePinControls();
     showToast('تم حفظ رمز الدخول. سيُطلب عند فتح التطبيق مجدداً.', 'success');
@@ -369,7 +421,7 @@ async function handleRemovePin() {
   const errorElement = document.getElementById('pin-settings-error');
   errorElement.textContent = '';
   try {
-    const storedPin = localStorage.getItem(PIN_STORAGE_KEY);
+    const storedPin = readStoredValue(PIN_STORAGE_KEY);
     if (!storedPin) {
       closePinSettings();
       updatePinControls();
@@ -380,8 +432,8 @@ async function handleRemovePin() {
       errorElement.textContent = 'أدخل الرمز الحالي الصحيح لإزالته.';
       return;
     }
-    localStorage.removeItem(PIN_STORAGE_KEY);
-    localStorage.removeItem(PIN_ATTEMPTS_KEY);
+    removeStoredValue(PIN_ATTEMPTS_KEY);
+    removeStoredValue(PIN_STORAGE_KEY);
     closePinSettings();
     updatePinControls();
     showToast('تمت إزالة رمز الدخول.', 'info');
@@ -403,23 +455,80 @@ function lockApplication() {
 }
 
 function saveTrips(trips = state.trips) {
-  localStorage.setItem(STORAGE_KEYS.TRIPS, JSON.stringify(trips));
+  writeStoredJson(STORAGE_KEYS.TRIPS, trips);
 }
 
 function saveClients(clients = state.clients) {
-  localStorage.setItem(STORAGE_KEYS.CLIENTS, JSON.stringify(clients));
+  writeStoredJson(STORAGE_KEYS.CLIENTS, clients);
 }
 
 function saveMaterials(materials = state.materials) {
-  localStorage.setItem(STORAGE_KEYS.MATERIALS, JSON.stringify(materials));
+  writeStoredJson(STORAGE_KEYS.MATERIALS, materials);
 }
 
-function saveTrucks() {
-  localStorage.setItem(STORAGE_KEYS.TRUCKS, JSON.stringify(state.trucks));
+function saveTrucks(trucks = state.trucks) {
+  writeStoredJson(STORAGE_KEYS.TRUCKS, trucks);
 }
 
 function saveAccounts(accounts = state.accounts) {
-  localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(accounts));
+  writeStoredJson(STORAGE_KEYS.ACCOUNTS, accounts);
+}
+
+function writeStoredJson(key, value) {
+  let serialized;
+  try {
+    serialized = JSON.stringify(value);
+    if (typeof serialized !== 'string') throw new TypeError('تعذر تحويل البيانات إلى صيغة قابلة للتخزين.');
+  } catch (error) {
+    reportStorageError('write', error);
+    throw error;
+  }
+  writeStoredValue(key, serialized);
+}
+
+function writeStoredValue(key, value) {
+  if (unreadableStorageKeys.has(key)) {
+    const error = new Error('لن يتم استبدال بيانات تعذر تحميلها أو تحليلها.');
+    reportStorageError('write', error);
+    throw error;
+  }
+
+  try {
+    localStorage.setItem(key, value);
+  } catch (error) {
+    reportStorageError('write', error);
+    throw error;
+  }
+}
+
+function removeStoredValue(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch (error) {
+    reportStorageError('remove', error);
+    throw error;
+  }
+}
+
+function maybeShowBackupReminder() {
+  const now = Date.now();
+
+  let lastReminder;
+  try {
+    lastReminder = Number(readStoredValue(BACKUP_REMINDER_KEY));
+  } catch (error) {
+    console.error('تعذر التحقق من تذكير النسخ الاحتياطي:', error);
+    return;
+  }
+
+  if (Number.isFinite(lastReminder) && lastReminder > 0 && now - lastReminder < BACKUP_REMINDER_INTERVAL) return;
+
+  showToast('تذكير ودي: نزّل نسخة احتياطية من بياناتك لحمايتها.', 'info');
+  try {
+    writeStoredJson(BACKUP_REMINDER_KEY, now);
+  } catch (error) {
+    console.error('تعذر حفظ موعد تذكير النسخ الاحتياطي:', error);
+  }
 }
 
 /* =========================================================
@@ -585,7 +694,8 @@ function renderClientSelects() {
     document.getElementById('client-select'),
     document.getElementById('filter-client'),
     document.getElementById('statement-client-select'),
-    document.getElementById('edit-client-select')
+    document.getElementById('edit-client-select'),
+    document.getElementById('account-client-input')
   ];
 
   selects.forEach(select => {
@@ -593,9 +703,12 @@ function renderClientSelects() {
     const currentVal = select.value;
     const isFilter = select.id === 'filter-client';
 
-    select.innerHTML = isFilter
-      ? '<option value="">كل العملاء</option>'
-      : `<option value="">${select.id === 'statement-client-select' ? 'اختر العميل' : 'أضف عميلاً من إدارة العملاء أولاً'}</option>`;
+    const placeholder = isFilter
+      ? 'كل العملاء'
+      : select.id === 'statement-client-select' || select.id === 'account-client-input'
+        ? 'اختر العميل'
+        : 'أضف عميلاً من إدارة العملاء أولاً';
+    select.innerHTML = `<option value="">${placeholder}</option>`;
 
     state.clients.forEach(client => {
       const opt = document.createElement('option');
@@ -845,8 +958,10 @@ function initEventListeners() {
   const accountClientInput = document.getElementById('account-client-input');
   const accountAmountInput = document.getElementById('account-amount-input');
   const accountTypeInput = document.getElementById('account-type-input');
+  const accountResetBtn = document.getElementById('account-reset-btn');
   if (accountForm) accountForm.addEventListener('submit', handleSaveAccount);
-  if (accountClientInput) accountClientInput.addEventListener('input', updateAccountRemainingPreview);
+  if (accountResetBtn) accountResetBtn.addEventListener('click', resetAccountForm);
+  if (accountClientInput) accountClientInput.addEventListener('change', updateAccountRemainingPreview);
   if (accountAmountInput) accountAmountInput.addEventListener('input', updateAccountRemainingPreview);
   if (accountTypeInput) accountTypeInput.addEventListener('change', updateAccountRemainingPreview);
 
@@ -975,14 +1090,24 @@ function handleSaveTrip(e) {
     createdAt: new Date().toISOString()
   };
 
-  // الإضافة في بداية السجل ليظهر أحدث سجل بالأعلى
-  state.trips.unshift(newTrip);
-  saveTrips();
+  const updatedTrips = [newTrip, ...state.trips];
+  try {
+    saveTrips(updatedTrips);
+  } catch (error) {
+    console.error('تعذر حفظ النقلة:', error);
+    return;
+  }
+  state.trips = updatedTrips;
 
   // حفظ الشاحنة في قائمة الاقتراحات إذا كانت جديدة
   if (truck && !state.trucks.includes(truck)) {
-    state.trucks.push(truck);
-    saveTrucks();
+    const updatedTrucks = [...state.trucks, truck];
+    try {
+      writeStoredJson(STORAGE_KEYS.TRUCKS, updatedTrucks);
+      state.trucks = updatedTrucks;
+    } catch (error) {
+      console.error('تعذر حفظ الشاحنة ضمن الاقتراحات:', error);
+    }
     renderTruckSuggestions();
   }
 
@@ -1074,55 +1199,65 @@ function updateAccountRemainingPreview() {
   preview.classList.toggle('text-amber-700', remaining < 0);
 }
 
+function resetAccountForm() {
+  const form = document.getElementById('account-form');
+  if (!form) return;
+
+  form.reset();
+  document.getElementById('account-client-input').value = '';
+  document.getElementById('account-amount-input').value = '';
+  updateAccountRemainingPreview();
+}
+
 function handleSaveAccount(e) {
   e.preventDefault();
   const client = document.getElementById('account-client-input').value.trim();
   const amount = Number(document.getElementById('account-amount-input').value);
   const type = document.getElementById('account-type-input').value;
 
-  if (!client || !Number.isFinite(amount) || amount <= 0 || (type !== 'debt' && type !== 'payment')) {
+  if (!client || !state.clients.includes(client) || !Number.isFinite(amount) || amount <= 0 || (type !== 'debt' && type !== 'payment')) {
     showToast('يرجى إدخال اسم العميل ومبلغ صحيح أكبر من صفر', 'error');
     return;
   }
 
-  let account = state.accounts.find(item =>
+  const existingAccount = state.accounts.find(item =>
     item.client.toLocaleLowerCase('ar') === client.toLocaleLowerCase('ar')
   );
-  if (!account) {
-    account = {
-      id: `account_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      client,
-      total: 0,
-      paid: 0,
-      transactions: []
-    };
-    state.accounts.unshift(account);
-  }
-  if (!Array.isArray(account.transactions)) {
-    account.transactions = [];
-  }
-  account.transactions.unshift({
+  const transaction = {
     id: `transaction_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     type,
     amount,
     date: new Date().toISOString()
-  });
-  if (type === 'debt') {
-    account.total += amount;
-  } else {
-    account.paid += amount;
+  };
+  const updatedTransactions = existingAccount
+    ? [transaction, ...existingAccount.transactions]
+    : [transaction];
+  const updatedAccount = existingAccount
+    ? {
+      ...existingAccount,
+      transactions: updatedTransactions,
+      total: updatedTransactions.reduce((sum, item) => sum + (item.type === 'debt' ? item.amount : 0), 0),
+      paid: updatedTransactions.reduce((sum, item) => sum + (item.type === 'payment' ? item.amount : 0), 0)
+    }
+    : {
+      id: `account_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      client,
+      total: type === 'debt' ? amount : 0,
+      paid: type === 'payment' ? amount : 0,
+      transactions: updatedTransactions
+    };
+  const updatedAccounts = existingAccount
+    ? state.accounts.map(item => item.id === existingAccount.id ? updatedAccount : item)
+    : [updatedAccount, ...state.accounts];
+  try {
+    saveAccounts(updatedAccounts);
+  } catch (error) {
+    console.error('تعذر حفظ معاملة حساب العميل:', error);
+    return;
   }
-
-  if (!state.clients.includes(client)) {
-    state.clients.push(client);
-    saveClients();
-    renderClientSelects();
-  }
-  saveAccounts();
+  state.accounts = updatedAccounts;
   renderAccountLedger();
-  renderAccountClientSuggestions();
-  document.getElementById('account-amount-input').value = '';
-  updateAccountRemainingPreview();
+  resetAccountForm();
   showToast(type === 'debt' ? 'تمت إضافة الدين وتحديث الرصيد' : 'تم تسجيل الدفعة وتحديث الرصيد', 'success');
 }
 
@@ -1215,6 +1350,7 @@ function openCustomerStatement(accountId) {
     return;
   }
 
+  // تبقى رسوم النقلات ضمن كشفها الشهري ولا تُدمج في رصيد الحساب اليدوي.
   const events = [];
   account.transactions.forEach(transaction => {
     events.push({
@@ -1223,25 +1359,6 @@ function openCustomerStatement(accountId) {
       description: transaction.type === 'debt' ? 'إضافة دين إلى الحساب' : 'دفعة مستلمة من العميل',
       debit: transaction.type === 'debt' ? transaction.amount : 0,
       credit: transaction.type === 'payment' ? transaction.amount : 0
-    });
-  });
-
-  state.trips.filter(trip => trip.client === account.client).forEach(trip => {
-    const count = Number(trip.count) || 1;
-    const price = Number(trip.price) || 0;
-    const amount = Number(trip.total) || count * price;
-    const details = [
-      trip.material || 'مواد بناء',
-      `${count} ${count === 1 ? 'نقلة' : 'نقلات'}`,
-      trip.truck ? `السيارة: ${trip.truck}` : '',
-      trip.notes || ''
-    ].filter(Boolean);
-    events.push({
-      date: trip.date || trip.createdAt,
-      type: 'نقلة / توريد',
-      description: details.join(' — '),
-      debit: amount,
-      credit: 0
     });
   });
 
@@ -1301,7 +1418,7 @@ function openCustomerStatement(accountId) {
 
   document.getElementById('customer-statement-debits').textContent = `${formatMoney(totalDebits)} ر.س`;
   document.getElementById('customer-statement-credits').textContent = `${formatMoney(totalCredits)} ر.س`;
-  document.getElementById('customer-statement-balance').textContent = `${formatMoney(account.total - account.paid)} ر.س`;
+  document.getElementById('customer-statement-balance').textContent = `${formatMoney(totalDebits - totalCredits)} ر.س`;
   const modal = document.getElementById('customer-statement-modal');
   modal.hidden = false;
   document.getElementById('close-customer-statement-btn').focus();
@@ -1322,17 +1439,6 @@ function closeCustomerStatement() {
 function printCustomerStatement() {
   document.body.classList.add('printing-customer-statement');
   window.print();
-}
-
-function renderAccountClientSuggestions() {
-  const datalist = document.getElementById('account-client-suggestions');
-  if (!datalist) return;
-  datalist.replaceChildren();
-  state.clients.forEach(client => {
-    const option = document.createElement('option');
-    option.value = client;
-    datalist.appendChild(option);
-  });
 }
 
 function startAccountTransaction(client, type) {
@@ -1410,7 +1516,6 @@ function deleteAccountTransaction(accountId, transactionId) {
     saveAccounts(updatedAccounts);
   } catch (error) {
     console.error('تعذر حفظ حذف المعاملة:', error);
-    showToast('تعذر حفظ حذف المعاملة. تحقق من مساحة التخزين المتاحة.', 'error');
     return;
   }
   state.accounts = updatedAccounts;
@@ -1426,7 +1531,6 @@ function deleteAccount(id) {
     saveAccounts(updatedAccounts);
   } catch (error) {
     console.error('تعذر حفظ حذف الحساب:', error);
-    showToast('تعذر حفظ حذف الحساب. تحقق من مساحة التخزين المتاحة.', 'error');
     return;
   }
   state.accounts = updatedAccounts;
@@ -1785,10 +1889,15 @@ function handleAddClient(e) {
     return;
   }
 
-  state.clients.push(name);
-  saveClients();
+  const updatedClients = [...state.clients, name];
+  try {
+    saveClients(updatedClients);
+  } catch (error) {
+    console.error('تعذر حفظ العميل الجديد:', error);
+    return;
+  }
+  state.clients = updatedClients;
   renderClientSelects();
-  renderAccountClientSuggestions();
 
   // تحديد العميل الجديد في القائمة الرئيسية فوراً
   document.getElementById('client-select').value = name;
@@ -1802,12 +1911,18 @@ window.deleteClient = function(name) {
     return;
   }
 
+  if (state.accounts.some(account =>
+    account.client.toLocaleLowerCase('ar') === name.toLocaleLowerCase('ar')
+  )) {
+    showToast('لا يمكن حذف عميل مرتبط بحساب. احذف حسابه أولاً.', 'warning');
+    return;
+  }
+
   const updatedClients = state.clients.filter(client => client !== name);
   try {
     saveClients(updatedClients);
   } catch (error) {
     console.error('تعذر حفظ حذف العميل:', error);
-    showToast('تعذر حفظ حذف العميل. تحقق من مساحة التخزين المتاحة.', 'error');
     return;
   }
   state.clients = updatedClients;
@@ -1874,19 +1989,27 @@ function handleSaveMaterial(e) {
   }
 
   const previousName = state.editingMaterialName;
+  const updatedMaterials = [...state.materials];
   if (previousName) {
-    const index = state.materials.findIndex(material => material.name === previousName);
+    const index = updatedMaterials.findIndex(material => material.name === previousName);
     if (index === -1) {
       showToast('تعذر العثور على المادة المطلوب تعديلها', 'error');
       return;
     }
-    const original = state.materials[index];
-    state.materials[index] = { ...original, name, defaultPrice };
+    const original = updatedMaterials[index];
+    updatedMaterials[index] = { ...original, name, defaultPrice };
   } else {
-    state.materials.push({ name, defaultPrice, icon: 'fa-cubes-stacked', badgeClass: 'badge-other' });
+    updatedMaterials.push({ name, defaultPrice, icon: 'fa-cubes-stacked', badgeClass: 'badge-other' });
   }
 
-  saveMaterials();
+  try {
+    saveMaterials(updatedMaterials);
+  } catch (error) {
+    console.error('تعذر حفظ المادة:', error);
+    return;
+  }
+
+  state.materials = updatedMaterials;
   renderMaterialSelects(previousName, name);
   renderMaterialsModalList();
 
@@ -1915,7 +2038,6 @@ window.deleteMaterial = function(name) {
     saveMaterials(updatedMaterials);
   } catch (error) {
     console.error('تعذر حفظ حذف المادة:', error);
-    showToast('تعذر حفظ حذف المادة. تحقق من مساحة التخزين المتاحة.', 'error');
     return;
   }
   state.materials = updatedMaterials;
@@ -1953,7 +2075,6 @@ function deleteTrip(id) {
     saveTrips(updatedTrips);
   } catch (error) {
     console.error('تعذر حفظ حذف النقلة:', error);
-    showToast('تعذر حفظ حذف النقلة. تحقق من مساحة التخزين المتاحة.', 'error');
     return;
   }
   state.trips = updatedTrips;
@@ -2014,7 +2135,7 @@ function handleUpdateTrip(e) {
   const total = count * price;
   const notes = document.getElementById('edit-notes-input').value.trim();
 
-  state.trips[tripIndex] = {
+  const updatedTrips = state.trips.map((trip, index) => index === tripIndex ? {
     ...state.trips[tripIndex],
     client,
     material,
@@ -2025,9 +2146,15 @@ function handleUpdateTrip(e) {
     total,
     notes,
     updatedAt: new Date().toISOString()
-  };
+  } : trip);
 
-  saveTrips();
+  try {
+    saveTrips(updatedTrips);
+  } catch (error) {
+    console.error('تعذر حفظ تحديث النقلة:', error);
+    return;
+  }
+  state.trips = updatedTrips;
   closeEditModal();
   renderDashboard();
   renderStatementView();
@@ -2048,7 +2175,6 @@ function handleClearAll() {
     saveTrips([]);
   } catch (error) {
     console.error('تعذر حفظ تفريغ سجل النقلات:', error);
-    showToast('تعذر مسح السجل. تحقق من مساحة التخزين المتاحة.', 'error');
     return;
   }
 
@@ -2124,7 +2250,12 @@ function handleBackup() {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  try {
+    writeStoredJson(BACKUP_REMINDER_KEY, Date.now());
+  } catch (error) {
+    console.error('تعذر تحديث موعد تذكير النسخ الاحتياطي:', error);
+  }
 
   showToast('تم تنزيل النسخة الاحتياطية من البيانات بنجاح', 'success');
 }
@@ -2135,62 +2266,105 @@ function handleRestore(e) {
 
   const reader = new FileReader();
   reader.onload = function(event) {
+    let data;
     try {
-      const data = JSON.parse(event.target.result);
-      if (!data.trips || !Array.isArray(data.trips)) {
-        throw new Error('صيغة الملف غير متوافقة');
+      if (typeof event.target.result !== 'string') throw new TypeError('محتوى الملف ليس نصاً.');
+      data = JSON.parse(event.target.result);
+      if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.trips)) {
+        throw new TypeError('صيغة الملف غير متوافقة.');
       }
-
-      if (confirm(`تم العثور على ${data.trips.length} نقلة في الملف.\nهل ترغب في استبدال البيانات الحالية بالبيانات المستوردة؟`)) {
-        state.trips = data.trips;
-        if (Array.isArray(data.clients)) state.clients = data.clients;
-        if (Array.isArray(data.accounts)) state.accounts = normalizeAccounts(data.accounts);
-        if (Array.isArray(data.materials)) {
-          const materials = data.materials.filter(material =>
-            material &&
-            typeof material.name === 'string' &&
-            material.name.trim() &&
-            Number.isFinite(Number(material.defaultPrice)) &&
-            Number(material.defaultPrice) >= 0
-          ).map(material => {
-            return {
-              name: material.name.trim(),
-              defaultPrice: Number(material.defaultPrice),
-              icon: typeof material.icon === 'string' && /^fa-[a-z0-9-]+$/.test(material.icon)
-                ? material.icon
-                : 'fa-cubes-stacked',
-              badgeClass: typeof material.badgeClass === 'string' && /^badge-[a-z0-9-]+$/.test(material.badgeClass)
-                ? material.badgeClass
-                : 'badge-other'
-            };
-          });
-          state.materials = materials;
-        }
-        if (Array.isArray(data.trucks)) state.trucks = data.trucks;
-
-        saveTrips();
-        saveClients();
-        saveMaterials();
-        saveTrucks();
-        saveAccounts();
-
-        renderClientSelects();
-        renderAccountClientSuggestions();
-        renderAccountLedger();
-        renderMaterialSelects();
-        state.filters.material = document.getElementById('filter-material').value;
-        initQuickChips();
-        renderMaterialsModalList();
-        renderTruckSuggestions();
-        renderDashboard();
-        renderStatementView();
-
-        showToast('تمت استعادة البيانات بنجاح تام!', 'success');
-      }
-    } catch (err) {
+    } catch (error) {
+      console.error('تعذر تحليل ملف النسخة الاحتياطية:', error);
       showToast('فشل قراءة الملف: صيغة النسخة الاحتياطية غير صحيحة', 'error');
+      return;
     }
+
+    if (!confirm(`تم العثور على ${data.trips.length} نقلة في الملف.\nهل ترغب في استبدال البيانات الحالية بالبيانات المستوردة؟`)) return;
+
+    const restoredMaterials = Array.isArray(data.materials)
+      ? normalizeMaterials(data.materials)
+      : state.materials;
+    const restoredTrips = normalizeTrips(data.trips, restoredMaterials);
+    const restoredAccounts = Array.isArray(data.accounts)
+      ? normalizeAccounts(data.accounts)
+      : state.accounts;
+    const restoredClients = Array.isArray(data.clients)
+      ? data.clients.filter(client => typeof client === 'string' && client.trim()).map(client => client.trim())
+      : [...state.clients];
+    restoredAccounts.forEach(account => {
+      if (!restoredClients.includes(account.client)) restoredClients.push(account.client);
+    });
+    const restoredTrucks = Array.isArray(data.trucks)
+      ? data.trucks.filter(truck => typeof truck === 'string' && truck.trim()).map(truck => truck.trim())
+      : state.trucks;
+    const storageKeys = [
+      STORAGE_KEYS.TRIPS,
+      STORAGE_KEYS.CLIENTS,
+      STORAGE_KEYS.MATERIALS,
+      STORAGE_KEYS.TRUCKS,
+      STORAGE_KEYS.ACCOUNTS
+    ];
+    const previousValues = new Map();
+    try {
+      storageKeys.forEach(key => previousValues.set(key, readStoredValue(key)));
+    } catch (error) {
+      console.error('تعذر تجهيز استعادة النسخة الاحتياطية:', error);
+      return;
+    }
+    const unreadableBeforeRestore = new Set(
+      storageKeys.filter(key => unreadableStorageKeys.has(key))
+    );
+    storageKeys.forEach(key => unreadableStorageKeys.delete(key));
+    const restoredValues = [
+      [STORAGE_KEYS.TRIPS, restoredTrips],
+      [STORAGE_KEYS.CLIENTS, restoredClients],
+      [STORAGE_KEYS.MATERIALS, restoredMaterials],
+      [STORAGE_KEYS.TRUCKS, restoredTrucks],
+      [STORAGE_KEYS.ACCOUNTS, restoredAccounts]
+    ];
+    const savedKeys = [];
+
+    try {
+      restoredValues.forEach(([key, value]) => {
+        writeStoredJson(key, value);
+        savedKeys.push(key);
+      });
+    } catch (error) {
+      console.error('تعذر حفظ النسخة المستعادة؛ ستُستعاد البيانات السابقة قدر الإمكان:', error);
+      savedKeys.reverse().forEach(key => {
+        try {
+          const previousValue = previousValues.get(key);
+          if (previousValue === null) {
+            removeStoredValue(key);
+          } else {
+            writeStoredValue(key, previousValue);
+          }
+        } catch (rollbackError) {
+          console.error(`تعذر التراجع عن استعادة ${key}:`, rollbackError);
+        }
+      });
+      unreadableBeforeRestore.forEach(key => unreadableStorageKeys.add(key));
+      return;
+    }
+
+    state.trips = restoredTrips;
+    state.clients = restoredClients;
+    state.materials = restoredMaterials;
+    state.trucks = restoredTrucks;
+    state.accounts = restoredAccounts;
+    renderClientSelects();
+    renderAccountLedger();
+    renderMaterialSelects();
+    state.filters.material = document.getElementById('filter-material').value;
+    initQuickChips();
+    renderMaterialsModalList();
+    renderTruckSuggestions();
+    renderDashboard();
+    renderStatementView();
+
+    showToast('تمت استعادة البيانات بنجاح تام!', 'success');
   };
+  reader.onerror = () => showToast('تعذر قراءة ملف النسخة الاحتياطية.', 'error');
   reader.readAsText(file);
   e.target.value = '';
 }

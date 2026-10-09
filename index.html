@@ -222,10 +222,6 @@
           <i class="fa-solid fa-user-plus text-amber-400"></i>
           <span>إدارة العملاء</span>
         </button>
-        <button id="open-material-modal-btn" class="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-700/80 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition border border-slate-600">
-          <i class="fa-solid fa-cubes-stacked text-emerald-400"></i>
-          <span>إدارة المواد والأسعار</span>
-        </button>
         <button id="open-client-catalog-modal-btn" type="button" class="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-700/80 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition border border-slate-600">
           <i class="fa-solid fa-tags text-amber-400"></i>
           <span>تخصيص أسعار العملاء</span>
@@ -896,44 +892,6 @@
       
       <div class="bg-slate-50 px-5 py-3 border-t border-slate-200 text-left">
         <button type="button" id="done-client-modal-btn" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-bold transition">
-          إغلاق
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- نافذة مودال: إدارة المواد وأسعارها الافتراضية -->
-  <div id="material-modal" class="app-modal fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="material-modal-title">
-    <div class="app-modal-dialog bg-white rounded-2xl max-w-lg w-full max-h-[calc(100vh-2rem)] overflow-y-auto shadow-2xl border border-slate-200 animate-fade-in">
-      <div class="app-modal-header bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
-        <h3 class="text-base font-bold flex items-center gap-2">
-          <i class="fa-solid fa-cubes-stacked text-emerald-400"></i>
-          <span id="material-modal-title">إدارة المواد والأسعار</span>
-        </h3>
-        <button id="close-material-modal-btn" type="button" class="text-slate-400 hover:text-white text-lg" aria-label="إغلاق">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
-      </div>
-
-      <div class="app-modal-content p-5 space-y-4">
-        <form id="material-form" class="grid grid-cols-1 sm:grid-cols-[1fr_110px_130px_auto] gap-2">
-          <input type="text" id="new-material-name" placeholder="اسم المادة أو الخدمة..." required class="w-full h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white">
-          <input type="text" id="new-material-unit" value="رد" maxlength="30" placeholder="الوحدة" aria-label="وحدة المادة" required class="w-full h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white">
-          <input type="number" id="new-material-price" min="0" step="any" placeholder="السعر الافتراضي" aria-label="السعر الافتراضي بالريال" required class="w-full h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white">
-          <button id="save-material-btn" type="submit" class="h-11 px-4 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5">
-            <i class="fa-solid fa-plus"></i>
-            <span>إضافة</span>
-          </button>
-        </form>
-
-        <div class="space-y-2">
-          <p class="text-xs font-bold text-slate-500">المواد المسجلة وأسعارها الافتراضية:</p>
-          <ul id="materials-list" class="max-h-72 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl bg-slate-50/50"></ul>
-        </div>
-      </div>
-
-      <div class="bg-slate-50 px-5 py-3 border-t border-slate-200 text-left">
-        <button type="button" id="done-material-modal-btn" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-bold transition">
           إغلاق
         </button>
       </div>

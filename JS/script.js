@@ -12,6 +12,13 @@ const STORAGE_KEYS = {
   ACCOUNTS: 'dad_transport_accounts_v1',
   CLIENT_CATALOGS: 'dad_transport_client_catalogs_v1'
 };
+const STANDARD_MATERIALS = [
+  { name: 'رمل ابيض بناء', unit: 'تريلا 20م', defaultPrice: 0, icon: 'fa-cubes-stacked', badgeClass: 'badge-other' },
+  { name: 'رمل احمر', unit: 'تريلا 20م', defaultPrice: 0, icon: 'fa-cubes-stacked', badgeClass: 'badge-other' },
+  { name: 'بحص', unit: 'تريلا 20م', defaultPrice: 0, icon: 'fa-cubes-stacked', badgeClass: 'badge-other' },
+  { name: 'دفان', unit: 'تريلا 20م', defaultPrice: 0, icon: 'fa-cubes-stacked', badgeClass: 'badge-other' },
+  { name: 'مخلفات', unit: 'رد', defaultPrice: 0, icon: 'fa-trash-can', badgeClass: 'badge-waste' }
+];
 const PIN_STORAGE_KEY = 'dad_transport_pin_v1';
 const PIN_ATTEMPTS_KEY = 'dad_transport_pin_attempts_v1';
 const BACKUP_REMINDER_KEY = 'dad_transport_backup_reminder_v1';
@@ -23,7 +30,6 @@ const state = {
   trips: [],
   clients: [],
   materials: [],
-  editingMaterialName: '',
   trucks: [],
   accounts: [],
   clientCatalogs: {},
@@ -54,11 +60,9 @@ function initializeApplication() {
   initStorage();
   renderMaterialSelects();
   initFormDefaults();
-  initQuickChips();
   initEventListeners();
   renderClientSelects();
   renderAccountLedger();
-  renderMaterialsModalList();
   renderTruckSuggestions();
   renderDashboard();
   renderStatementView();
@@ -182,7 +186,8 @@ function registerServiceWorker() {
    ========================================================= */
 
 function initStorage() {
-  state.materials = normalizeMaterials(readStoredArray(STORAGE_KEYS.MATERIALS, 'المواد'));
+  const storedMaterials = normalizeMaterials(readStoredArray(STORAGE_KEYS.MATERIALS, 'المواد'));
+  state.materials = storedMaterials.length ? storedMaterials : getStandardMaterials();
 
   state.clients = readStoredArray(STORAGE_KEYS.CLIENTS, 'العملاء')
     .filter(client => typeof client === 'string' && client.trim())
@@ -216,6 +221,10 @@ function normalizeMaterials(materials) {
       ? material.badgeClass
       : 'badge-other'
   }));
+}
+
+function getStandardMaterials() {
+  return normalizeMaterials(STANDARD_MATERIALS);
 }
 
 function normalizeClientCatalogs(catalogs) {
@@ -513,10 +522,6 @@ function saveClients(clients = state.clients) {
   writeStoredJson(STORAGE_KEYS.CLIENTS, clients);
 }
 
-function saveMaterials(materials = state.materials) {
-  writeStoredJson(STORAGE_KEYS.MATERIALS, materials);
-}
-
 function saveTrucks(trucks = state.trucks) {
   writeStoredJson(STORAGE_KEYS.TRUCKS, trucks);
 }
@@ -740,7 +745,7 @@ function renderQuickMaterialSelect() {
   if (!materials.length) {
     const option = document.createElement('option');
     option.value = '';
-    option.textContent = 'أضف مادة من إدارة المواد أولاً';
+    option.textContent = 'لا توجد مواد متاحة';
     select.appendChild(option);
   } else {
     materials.forEach(material => {
@@ -778,7 +783,7 @@ function renderEditMaterialSelectForClient(client, preserveMaterial = '') {
   }
 }
 
-function renderMaterialSelects(previousName = '', replacementName = '') {
+function renderMaterialSelects() {
   const filterSelect = document.getElementById('filter-material');
   const editSelect = document.getElementById('edit-material-select');
   const currentFilterValue = filterSelect?.value || '';
@@ -802,7 +807,7 @@ function renderMaterialSelects(previousName = '', replacementName = '') {
       option.textContent = material.name;
       select.appendChild(option);
     });
-    const value = currentValue === previousName && replacementName ? replacementName : currentValue;
+    const value = currentValue;
     if (value && Array.from(select.options).some(option => option.value === value)) {
       select.value = value;
     } else if (!placeholder && select.options.length) {
@@ -1075,53 +1080,6 @@ function handleClientCatalogAction(event) {
   showToast('تم حذف المادة من تسعيرة العميل.', 'info');
 }
 
-function renderMaterialsModalList() {
-  const list = document.getElementById('materials-list');
-  if (!list) return;
-
-  list.innerHTML = '';
-  state.materials.forEach(material => {
-    const item = document.createElement('li');
-    item.className = 'px-3 py-2.5 flex items-center justify-between gap-3 text-xs font-semibold text-slate-800';
-
-    const details = document.createElement('div');
-    details.className = 'min-w-0 flex items-center gap-2';
-    const icon = document.createElement('i');
-    icon.className = `fa-solid ${material.icon} text-brand-600`;
-    const name = document.createElement('span');
-    name.className = 'truncate';
-    name.textContent = material.name;
-    const unit = document.createElement('span');
-    unit.className = 'whitespace-nowrap text-slate-500';
-    unit.textContent = material.unit;
-    const price = document.createElement('span');
-    price.className = 'whitespace-nowrap text-slate-500';
-    price.textContent = `${Number(material.defaultPrice).toLocaleString('ar-SA')} ر.س`;
-    details.append(icon, name, unit, price);
-
-    const actions = document.createElement('div');
-    actions.className = 'flex items-center gap-2 flex-shrink-0';
-    const editButton = document.createElement('button');
-    editButton.type = 'button';
-    editButton.className = 'text-brand-600 hover:text-brand-800 p-1';
-    editButton.title = 'تعديل المادة والسعر';
-    editButton.setAttribute('aria-label', `تعديل ${material.name}`);
-    editButton.innerHTML = '<i class="fa-solid fa-pen-to-square"></i>';
-    editButton.addEventListener('click', () => startEditMaterial(material.name));
-
-    const deleteButton = document.createElement('button');
-    deleteButton.type = 'button';
-    deleteButton.className = 'text-rose-500 hover:text-rose-700 p-1';
-    deleteButton.title = 'حذف المادة';
-    deleteButton.setAttribute('aria-label', `حذف ${material.name}`);
-    deleteButton.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
-    deleteButton.dataset.materialDelete = material.name;
-    actions.append(editButton, deleteButton);
-    item.append(details, actions);
-    list.appendChild(item);
-  });
-}
-
 /* =========================================================
    إدارة الأحداث وعناصر التحكم
    ========================================================= */
@@ -1165,14 +1123,6 @@ function initEventListeners() {
       if (catalogButton && clientsList.contains(catalogButton)) {
         openClientCatalogEditor(catalogButton.dataset.clientCatalog);
       }
-    });
-  }
-
-  const materialsList = document.getElementById('materials-list');
-  if (materialsList) {
-    materialsList.addEventListener('click', event => {
-      const button = event.target.closest('button[data-material-delete]');
-      if (button && materialsList.contains(button)) deleteMaterial(button.dataset.materialDelete);
     });
   }
 
@@ -1381,17 +1331,6 @@ function initEventListeners() {
   if (clientCatalogList) {
     clientCatalogList.addEventListener('click', handleClientCatalogAction);
   }
-
-  // إدارة المواد وأسعارها الافتراضية
-  const openMaterialModalBtn = document.getElementById('open-material-modal-btn');
-  const closeMaterialModalBtn = document.getElementById('close-material-modal-btn');
-  const doneMaterialModalBtn = document.getElementById('done-material-modal-btn');
-  const materialForm = document.getElementById('material-form');
-
-  if (openMaterialModalBtn) openMaterialModalBtn.addEventListener('click', openMaterialModal);
-  if (closeMaterialModalBtn) closeMaterialModalBtn.addEventListener('click', closeMaterialModal);
-  if (doneMaterialModalBtn) doneMaterialModalBtn.addEventListener('click', closeMaterialModal);
-  if (materialForm) materialForm.addEventListener('submit', handleSaveMaterial);
 
   // نافذة تعديل النقلة
   const closeEditModalBtn = document.getElementById('close-edit-modal-btn');
@@ -2346,133 +2285,6 @@ window.deleteClient = function(name) {
 };
 
 /* =========================================================
-   إدارة المواد والأسعار الافتراضية
-   ========================================================= */
-
-function openMaterialModal() {
-  state.editingMaterialName = '';
-  resetMaterialForm();
-  renderMaterialsModalList();
-  document.getElementById('material-modal').classList.remove('hidden');
-  document.getElementById('new-material-name').focus();
-}
-
-function closeMaterialModal() {
-  document.getElementById('material-modal').classList.add('hidden');
-  state.editingMaterialName = '';
-  resetMaterialForm();
-}
-
-function resetMaterialForm() {
-  const form = document.getElementById('material-form');
-  const saveButton = document.getElementById('save-material-btn');
-  if (form) form.reset();
-  if (saveButton) {
-    saveButton.innerHTML = '<i class="fa-solid fa-plus"></i><span>إضافة</span>';
-  }
-}
-
-function startEditMaterial(name) {
-  const material = state.materials.find(item => item.name === name);
-  if (!material) return;
-
-  state.editingMaterialName = material.name;
-  document.getElementById('new-material-name').value = material.name;
-  document.getElementById('new-material-unit').value = material.unit;
-  document.getElementById('new-material-price').value = material.defaultPrice;
-  document.getElementById('save-material-btn').innerHTML = '<i class="fa-solid fa-check"></i><span>حفظ</span>';
-  document.getElementById('new-material-name').focus();
-}
-
-function handleSaveMaterial(e) {
-  e.preventDefault();
-  const nameInput = document.getElementById('new-material-name');
-  const unitInput = document.getElementById('new-material-unit');
-  const priceInput = document.getElementById('new-material-price');
-  const name = nameInput.value.trim();
-  const unit = unitInput.value.trim();
-  const defaultPrice = Number(priceInput.value);
-
-  if (!name || !unit || priceInput.value === '' || !Number.isFinite(defaultPrice) || defaultPrice < 0) {
-    showToast('يرجى إدخال اسم المادة ووحدتها وسعر افتراضي صحيح غير سالب', 'error');
-    return;
-  }
-
-  const existingMaterial = state.materials.find(material =>
-    material.name === name && material.name !== state.editingMaterialName
-  );
-  if (existingMaterial) {
-    showToast('هذه المادة مسجلة بالفعل!', 'warning');
-    return;
-  }
-
-  const previousName = state.editingMaterialName;
-  const updatedMaterials = [...state.materials];
-  if (previousName) {
-    const index = updatedMaterials.findIndex(material => material.name === previousName);
-    if (index === -1) {
-      showToast('تعذر العثور على المادة المطلوب تعديلها', 'error');
-      return;
-    }
-    const original = updatedMaterials[index];
-    updatedMaterials[index] = { ...original, name, unit, defaultPrice };
-  } else {
-    updatedMaterials.push({ name, unit, defaultPrice, icon: 'fa-cubes-stacked', badgeClass: 'badge-other' });
-  }
-
-  try {
-    saveMaterials(updatedMaterials);
-  } catch (error) {
-    console.error('تعذر حفظ المادة:', error);
-    return;
-  }
-
-  state.materials = updatedMaterials;
-  renderMaterialSelects(previousName, name);
-  renderMaterialsModalList();
-
-  const mainSelect = document.getElementById('material-select');
-  if (!previousName && Array.from(mainSelect.options).some(option => option.value === name)) {
-    mainSelect.value = name;
-  }
-  renderQuickMaterialSelect();
-
-  state.editingMaterialName = '';
-  resetMaterialForm();
-  renderDashboard();
-  renderStatementView();
-  showToast(previousName ? `تم تحديث المادة [${name}] بنجاح` : `تمت إضافة المادة [${name}] بنجاح`, 'success');
-}
-
-window.deleteMaterial = function(name) {
-  if (!confirm(`هل أنت متأكد من حذف المادة "${name}" من القائمة؟ ستبقى النقلات السابقة محفوظة.`)) {
-    return;
-  }
-
-  const updatedMaterials = state.materials.filter(material => material.name !== name);
-  try {
-    saveMaterials(updatedMaterials);
-  } catch (error) {
-    console.error('تعذر حفظ حذف المادة:', error);
-    return;
-  }
-  state.materials = updatedMaterials;
-  renderMaterialSelects();
-  renderMaterialsModalList();
-
-  const mainSelect = document.getElementById('material-select');
-  const priceInput = document.getElementById('price-input');
-  if (mainSelect.value && priceInput) {
-    applySelectedQuickMaterial();
-    updateRealtimeTotal();
-  }
-
-  renderDashboard();
-  renderStatementView();
-  showToast(`تم حذف المادة [${name}] من القائمة`, 'info');
-};
-
-/* =========================================================
    تعديل وحذف النقلات
    ========================================================= */
 
@@ -2705,9 +2517,10 @@ function handleRestore(e) {
 
     if (!confirm(`تم العثور على ${data.trips.length} نقلة في الملف.\nهل ترغب في استبدال البيانات الحالية بالبيانات المستوردة؟`)) return;
 
-    const restoredMaterials = Array.isArray(data.materials)
+    const importedMaterials = Array.isArray(data.materials)
       ? normalizeMaterials(data.materials)
-      : state.materials;
+      : [...state.materials];
+    const restoredMaterials = importedMaterials.length ? importedMaterials : getStandardMaterials();
     const restoredClientCatalogs = data.clientCatalogs && typeof data.clientCatalogs === 'object' && !Array.isArray(data.clientCatalogs)
       ? normalizeClientCatalogs(data.clientCatalogs)
       : {};
@@ -2786,7 +2599,6 @@ function handleRestore(e) {
     renderAccountLedger();
     renderMaterialSelects();
     state.filters.material = document.getElementById('filter-material').value;
-    renderMaterialsModalList();
     renderTruckSuggestions();
     renderDashboard();
     renderStatementView();

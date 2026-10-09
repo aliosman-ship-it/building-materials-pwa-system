@@ -9,7 +9,8 @@ const STORAGE_KEYS = {
   CLIENTS: 'dad_transport_clients_v1',
   MATERIALS: 'dad_transport_materials_v1',
   TRUCKS: 'dad_transport_trucks_v1',
-  ACCOUNTS: 'dad_transport_accounts_v1'
+  ACCOUNTS: 'dad_transport_accounts_v1',
+  CLIENT_CATALOGS: 'dad_transport_client_catalogs_v1'
 };
 const PIN_STORAGE_KEY = 'dad_transport_pin_v1';
 const PIN_ATTEMPTS_KEY = 'dad_transport_pin_attempts_v1';
@@ -25,6 +26,8 @@ const state = {
   editingMaterialName: '',
   trucks: [],
   accounts: [],
+  clientCatalogs: {},
+  editingCatalogItem: '',
   activeTab: 'records', // 'records' | 'monthly' | 'accounts'
   filters: {
     client: '',
@@ -184,6 +187,7 @@ function initStorage() {
   state.clients = readStoredArray(STORAGE_KEYS.CLIENTS, 'العملاء')
     .filter(client => typeof client === 'string' && client.trim())
     .map(client => client.trim());
+  state.clientCatalogs = readStoredObject(STORAGE_KEYS.CLIENT_CATALOGS, 'تسعيرات العملاء');
   state.accounts = normalizeAccounts(readStoredArray(STORAGE_KEYS.ACCOUNTS, 'حسابات العملاء'));
   state.accounts.forEach(account => {
     if (!state.clients.includes(account.client)) state.clients.push(account.client);
@@ -191,7 +195,7 @@ function initStorage() {
   state.trucks = readStoredArray(STORAGE_KEYS.TRUCKS, 'الشاحنات')
     .filter(truck => typeof truck === 'string' && truck.trim())
     .map(truck => truck.trim());
-  state.trips = normalizeTrips(readStoredArray(STORAGE_KEYS.TRIPS, 'النقلات'), state.materials);
+  state.trips = normalizeTrips(readStoredArray(STORAGE_KEYS.TRIPS, 'النقلات'), state.materials, state.clientCatalogs);
 }
 
 function normalizeMaterials(materials) {
@@ -203,6 +207,7 @@ function normalizeMaterials(materials) {
     Number(material.defaultPrice) >= 0
   ).map(material => ({
     name: material.name.trim(),
+    unit: typeof material.unit === 'string' && material.unit.trim() ? material.unit.trim() : 'رد',
     defaultPrice: Number(material.defaultPrice),
     icon: typeof material.icon === 'string' && /^fa-[a-z0-9-]+$/.test(material.icon)
       ? material.icon
@@ -213,12 +218,33 @@ function normalizeMaterials(materials) {
   }));
 }
 
-function normalizeTrips(trips, materials) {
+function normalizeClientCatalogs(catalogs) {
+  if (!catalogs || typeof catalogs !== 'object' || Array.isArray(catalogs)) return {};
+  return Object.fromEntries(Object.entries(catalogs).map(([client, entries]) => {
+    if (typeof client !== 'string' || !client.trim() || !Array.isArray(entries)) return [client, []];
+    const seenNames = new Set();
+    const normalizedEntries = entries.flatMap(entry => {
+      if (!entry || typeof entry.name !== 'string' || !entry.name.trim()) return [];
+      const name = entry.name.trim();
+      const unit = typeof entry.unit === 'string' && entry.unit.trim() ? entry.unit.trim() : 'رد';
+      const defaultPrice = Number(entry.defaultPrice);
+      if (seenNames.has(name) || !Number.isFinite(defaultPrice) || defaultPrice < 0) return [];
+      seenNames.add(name);
+      return [{ name, unit, defaultPrice }];
+    });
+    return [client.trim(), normalizedEntries];
+  }).filter(([client]) => typeof client === 'string' && client.trim()));
+}
+
+function normalizeTrips(trips, materials, clientCatalogs = {}) {
   return trips
     .filter(trip => trip && typeof trip === 'object' && !Array.isArray(trip))
     .map(trip => {
       const count = Number.parseInt(trip.count, 10) || 1;
-      const defaultPrice = materials.find(material => material.name === trip.material)?.defaultPrice || 0;
+      const catalogItem = clientCatalogs[trip.client]?.find(item => item.name === trip.material);
+      const defaultPrice = catalogItem?.defaultPrice
+        ?? materials.find(material => material.name === trip.material)?.defaultPrice
+        ?? 0;
       const price = trip.price !== null && Number.isFinite(Number(trip.price)) ? Number(trip.price) : defaultPrice;
       const total = trip.total !== null && Number.isFinite(Number(trip.total)) ? Number(trip.total) : count * price;
       return {
@@ -228,6 +254,7 @@ function normalizeTrips(trips, materials) {
         client: typeof trip.client === 'string' ? trip.client : '',
         material: typeof trip.material === 'string' ? trip.material : '',
         count,
+        unit: typeof trip.unit === 'string' && trip.unit.trim() ? trip.unit.trim() : catalogItem?.unit || 'رد',
         price,
         total,
         truck: typeof trip.truck === 'string' ? trip.truck : '',
@@ -259,6 +286,30 @@ function readStoredArray(key, label) {
     console.error(`تعذر تحليل بيانات ${label} من التخزين المحلي:`, error);
     showToast(`تعذر قراءة بيانات ${label}؛ بقيت البيانات المخزنة دون تغيير.`, 'warning');
     return [];
+  }
+}
+
+function readStoredObject(key, label) {
+  let stored;
+  try {
+    stored = readStoredValue(key);
+  } catch (error) {
+    unreadableStorageKeys.add(key);
+    console.error(`تعذر تحميل ${label} من التخزين المحلي:`, error);
+    return {};
+  }
+  if (stored === null) return {};
+  try {
+    const parsed = JSON.parse(stored);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new TypeError('المحتوى المخزن ليس سجلاً.');
+    }
+    return normalizeClientCatalogs(parsed);
+  } catch (error) {
+    unreadableStorageKeys.add(key);
+    console.error(`تعذر تحليل بيانات ${label} من التخزين المحلي:`, error);
+    showToast(`تعذر قراءة بيانات ${label}؛ بقيت البيانات المخزنة دون تغيير.`, 'warning');
+    return {};
   }
 }
 
@@ -596,7 +647,7 @@ function initQuickChips() {
 
   container.innerHTML = '';
   const selectedMaterial = document.getElementById('material-select')?.value;
-  state.materials.forEach((item, index) => {
+  getClientMaterials(document.getElementById('client-select')?.value).forEach((item, index) => {
     const chip = document.createElement('button');
     chip.type = 'button';
     const isSelected = item.name === selectedMaterial || (!selectedMaterial && index === 0);
@@ -638,23 +689,98 @@ function selectMaterial(materialName) {
   });
 
   // ملء السعر الافتراضي تلقائياً مع السماح بالتعديل
-  const matInfo = state.materials.find(m => m.name === materialName);
-  const priceInput = document.getElementById('price-input');
-  if (matInfo && priceInput) {
-    priceInput.value = matInfo.defaultPrice;
-    updateRealtimeTotal();
-  }
+  applySelectedQuickMaterial();
 
   // توجيه المؤشر لحقل السيارة
   const truckInput = document.getElementById('truck-input');
   if (truckInput) truckInput.focus();
 }
 
+function getClientCatalogItem(client, materialName) {
+  return state.clientCatalogs[client]?.find(item => item.name === materialName) || null;
+}
+
+function getClientMaterials(client) {
+  const configuredMaterials = state.clientCatalogs[client];
+  if (configuredMaterials?.length) {
+    return configuredMaterials.map(material => ({
+      ...material,
+      icon: 'fa-cubes-stacked',
+      badgeClass: 'badge-other'
+    }));
+  }
+  return state.materials;
+}
+
+function applySelectedQuickMaterial() {
+  const client = document.getElementById('client-select')?.value || '';
+  const materialName = document.getElementById('material-select')?.value || '';
+  const catalogItem = getClientCatalogItem(client, materialName);
+  const material = getClientMaterials(client).find(item => item.name === materialName);
+  const unit = catalogItem?.unit || material?.unit || 'رد';
+  const countUnitLabel = document.getElementById('count-unit-label');
+  const priceUnitLabel = document.getElementById('price-unit-label');
+  if (countUnitLabel) countUnitLabel.textContent = unit;
+  if (priceUnitLabel) priceUnitLabel.textContent = unit;
+
+  const priceInput = document.getElementById('price-input');
+  if (material && priceInput) {
+    priceInput.value = material.defaultPrice;
+    updateRealtimeTotal();
+  }
+}
+
+function renderQuickMaterialSelect() {
+  const select = document.getElementById('material-select');
+  if (!select) return;
+  const currentValue = select.value;
+  const materials = getClientMaterials(document.getElementById('client-select')?.value || '');
+  select.innerHTML = '';
+
+  if (!materials.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'أضف مادة من إدارة المواد أولاً';
+    select.appendChild(option);
+  } else {
+    materials.forEach(material => {
+      const option = document.createElement('option');
+      option.value = material.name;
+      option.textContent = material.name;
+      select.appendChild(option);
+    });
+    select.value = materials.some(material => material.name === currentValue)
+      ? currentValue
+      : materials[0].name;
+  }
+  applySelectedQuickMaterial();
+  initQuickChips();
+}
+
+function renderEditMaterialSelectForClient(client, preserveMaterial = '') {
+  const select = document.getElementById('edit-material-select');
+  if (!select) return;
+  const materials = [...getClientMaterials(client)];
+  if (preserveMaterial && !materials.some(item => item.name === preserveMaterial)) {
+    materials.push({ name: preserveMaterial, defaultPrice: 0, unit: 'رد' });
+  }
+  select.replaceChildren();
+  materials.forEach(material => {
+    const option = document.createElement('option');
+    option.value = material.name;
+    option.textContent = material.name;
+    select.appendChild(option);
+  });
+  if (materials.some(item => item.name === preserveMaterial)) {
+    select.value = preserveMaterial;
+  } else if (materials.length) {
+    select.selectedIndex = 0;
+  }
+}
+
 function renderMaterialSelects(previousName = '', replacementName = '') {
-  const mainSelect = document.getElementById('material-select');
   const filterSelect = document.getElementById('filter-material');
   const editSelect = document.getElementById('edit-material-select');
-  const currentMainValue = mainSelect?.value || '';
   const currentFilterValue = filterSelect?.value || '';
   const currentEditValue = editSelect?.value || '';
   const historicalMaterials = [...new Set(state.trips.map(trip => trip.material).filter(Boolean))]
@@ -684,9 +810,9 @@ function renderMaterialSelects(previousName = '', replacementName = '') {
     }
   };
 
-  fillSelect(mainSelect, state.materials, 'أضف مادة من إدارة المواد أولاً', currentMainValue);
   fillSelect(filterSelect, [...state.materials, ...historicalMaterials], 'كل المواد والخدمات', currentFilterValue);
   fillSelect(editSelect, [...state.materials, ...historicalMaterials], 'لا توجد مواد مسجلة', currentEditValue);
+  renderQuickMaterialSelect();
 }
 
 function renderClientSelects() {
@@ -695,7 +821,8 @@ function renderClientSelects() {
     document.getElementById('filter-client'),
     document.getElementById('statement-client-select'),
     document.getElementById('edit-client-select'),
-    document.getElementById('account-client-input')
+    document.getElementById('account-client-input'),
+    document.getElementById('client-catalog-client-select')
   ];
 
   selects.forEach(select => {
@@ -707,6 +834,8 @@ function renderClientSelects() {
       ? 'كل العملاء'
       : select.id === 'statement-client-select' || select.id === 'account-client-input'
         ? 'اختر العميل'
+        : select.id === 'client-catalog-client-select'
+          ? 'اختر العميل لتخصيص أسعاره'
         : 'أضف عميلاً من إدارة العملاء أولاً';
     select.innerHTML = `<option value="">${placeholder}</option>`;
 
@@ -722,7 +851,9 @@ function renderClientSelects() {
     }
   });
 
+  renderQuickMaterialSelect();
   renderClientsModalList();
+  renderClientCatalogList();
 }
 
 function renderTruckSuggestions() {
@@ -750,13 +881,23 @@ function renderClientsModalList() {
     const li = document.createElement('li');
     li.className = 'px-3 py-2.5 flex items-center justify-between text-xs font-semibold text-slate-800';
     const details = document.createElement('div');
-    details.className = 'flex items-center gap-2';
+    details.className = 'min-w-0 flex flex-1 items-center gap-2';
     const icon = document.createElement('i');
     icon.className = 'fa-solid fa-user-check text-emerald-500';
     const name = document.createElement('span');
+    name.className = 'truncate';
     name.textContent = client;
     details.append(icon, name);
 
+    const actions = document.createElement('div');
+    actions.className = 'flex items-center gap-2';
+    const catalogButton = document.createElement('button');
+    catalogButton.type = 'button';
+    catalogButton.className = 'min-h-10 px-2 text-brand-700 hover:bg-brand-50 rounded-lg';
+    catalogButton.title = 'إدارة تسعيرة العميل';
+    catalogButton.setAttribute('aria-label', `إدارة تسعيرة العميل ${client}`);
+    catalogButton.dataset.clientCatalog = client;
+    catalogButton.innerHTML = '<i class="fa-solid fa-tags"></i>';
     const deleteButton = document.createElement('button');
     deleteButton.type = 'button';
     deleteButton.className = 'min-w-10 min-h-10 text-rose-700 hover:bg-rose-50 rounded-lg';
@@ -764,9 +905,174 @@ function renderClientsModalList() {
     deleteButton.setAttribute('aria-label', `حذف العميل ${client}`);
     deleteButton.dataset.clientDelete = client;
     deleteButton.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
-    li.append(details, deleteButton);
+    actions.append(catalogButton, deleteButton);
+    li.append(details, actions);
     list.appendChild(li);
   });
+}
+
+function openClientCatalogEditor(client = '') {
+  const modal = document.getElementById('client-catalog-modal');
+  const clientSelect = document.getElementById('client-catalog-client-select');
+  const clientModal = document.getElementById('client-modal');
+  if (!clientModal.classList.contains('hidden')) clientModal.classList.add('hidden');
+  if (client && state.clients.includes(client)) clientSelect.value = client;
+  else if (!state.clients.includes(clientSelect.value)) clientSelect.value = '';
+  modal.classList.remove('hidden');
+  resetClientCatalogForm();
+  renderClientCatalogList();
+  if (!clientSelect.value) clientSelect.focus();
+}
+
+function renderClientCatalogList() {
+  const list = document.getElementById('client-catalog-list');
+  if (!list) return;
+  list.innerHTML = '';
+  const client = document.getElementById('client-catalog-client-select').value;
+  const entries = state.clientCatalogs[client] || [];
+  if (!entries.length) {
+    const empty = document.createElement('tr');
+    const message = document.createElement('td');
+    empty.className = 'text-center text-slate-500 p-4';
+    message.colSpan = 4;
+    message.textContent = client
+      ? 'لا توجد مواد مخصصة لهذا العميل؛ سيُستخدم الكتالوج العام.'
+      : 'اختر عميلاً لعرض أو تخصيص أسعاره.';
+    empty.appendChild(message);
+    list.appendChild(empty);
+    return;
+  }
+
+  entries.forEach(item => {
+    const row = document.createElement('tr');
+    row.className = 'text-slate-800';
+    const nameCell = document.createElement('td');
+    nameCell.className = 'p-3';
+    nameCell.textContent = item.name;
+    const unitCell = document.createElement('td');
+    unitCell.className = 'p-3';
+    unitCell.textContent = item.unit;
+    const priceCell = document.createElement('td');
+    priceCell.className = 'p-3 text-center font-mono';
+    priceCell.textContent = Number(item.defaultPrice).toLocaleString('ar-SA');
+    const actionsCell = document.createElement('td');
+    actionsCell.className = 'p-2 text-center whitespace-nowrap';
+    const actions = document.createElement('div');
+    actions.className = 'inline-flex items-center justify-center gap-1';
+    const editButton = document.createElement('button');
+    editButton.type = 'button';
+    editButton.className = 'min-w-10 min-h-10 text-brand-700 hover:bg-brand-50 rounded-lg';
+    editButton.title = 'تعديل المادة';
+    editButton.setAttribute('aria-label', `تعديل مادة ${item.name}`);
+    editButton.dataset.catalogEdit = item.name;
+    editButton.innerHTML = '<i class="fa-solid fa-pen-to-square"></i><span class="sr-only">تعديل</span>';
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'min-w-10 min-h-10 text-rose-700 hover:bg-rose-50 rounded-lg';
+    deleteButton.title = 'حذف المادة';
+    deleteButton.setAttribute('aria-label', `حذف مادة ${item.name}`);
+    deleteButton.dataset.catalogDelete = item.name;
+    deleteButton.innerHTML = '<i class="fa-solid fa-trash-can"></i><span class="sr-only">حذف</span>';
+    actions.append(editButton, deleteButton);
+    actionsCell.appendChild(actions);
+    row.append(nameCell, unitCell, priceCell, actionsCell);
+    list.appendChild(row);
+  });
+}
+
+function resetClientCatalogForm() {
+  const form = document.getElementById('client-catalog-form');
+  if (form) form.reset();
+  document.getElementById('client-catalog-unit').value = 'رد';
+  state.editingCatalogItem = '';
+  document.getElementById('save-client-catalog-item-btn').innerHTML =
+    '<i class="fa-solid fa-plus"></i><span>إضافة للتسعيرة</span>';
+  document.getElementById('cancel-client-catalog-edit-btn').classList.add('hidden');
+}
+
+function closeClientCatalogModal() {
+  document.getElementById('client-catalog-modal').classList.add('hidden');
+  resetClientCatalogForm();
+}
+
+function handleSaveClientCatalogItem(event) {
+  event.preventDefault();
+  const client = document.getElementById('client-catalog-client-select').value;
+  if (!state.clients.includes(client)) {
+    showToast('اختر عميلاً صالحاً لإدارة تسعيرته.', 'error');
+    return;
+  }
+  const name = document.getElementById('client-catalog-material').value.trim();
+  const unit = document.getElementById('client-catalog-unit').value.trim();
+  const defaultPrice = Number(document.getElementById('client-catalog-price').value);
+  if (!name || !unit || !Number.isFinite(defaultPrice) || defaultPrice < 0) {
+    showToast('أدخل مادة ووحدة وسعراً افتراضياً صالحاً.', 'error');
+    return;
+  }
+
+  const entries = [...(state.clientCatalogs[client] || [])];
+  const existingIndex = entries.findIndex(item => item.name === name);
+  const editingIndex = state.editingCatalogItem
+    ? entries.findIndex(item => item.name === state.editingCatalogItem)
+    : -1;
+  if (existingIndex !== -1 && existingIndex !== editingIndex) {
+    showToast('هذه المادة مسجلة بالفعل في تسعيرة العميل.', 'warning');
+    return;
+  }
+  const catalogItem = { name, unit, defaultPrice };
+  if (editingIndex >= 0) entries[editingIndex] = catalogItem;
+  else entries.push(catalogItem);
+
+  const updatedCatalogs = { ...state.clientCatalogs, [client]: entries };
+  try {
+    writeStoredJson(STORAGE_KEYS.CLIENT_CATALOGS, updatedCatalogs);
+  } catch (error) {
+    console.error('تعذر حفظ تسعيرة العميل:', error);
+    return;
+  }
+  state.clientCatalogs = updatedCatalogs;
+  resetClientCatalogForm();
+  renderClientCatalogList();
+  renderQuickMaterialSelect();
+  showToast('تم حفظ تسعيرة العميل بنجاح.', 'success');
+}
+
+function handleClientCatalogAction(event) {
+  const button = event.target.closest('button[data-catalog-edit], button[data-catalog-delete]');
+  if (!button) return;
+  const name = button.dataset.catalogEdit || button.dataset.catalogDelete;
+  const client = document.getElementById('client-catalog-client-select').value;
+  const entries = state.clientCatalogs[client] || [];
+  const item = entries.find(entry => entry.name === name);
+  if (!item) return;
+
+  if (button.dataset.catalogEdit) {
+    state.editingCatalogItem = item.name;
+    document.getElementById('client-catalog-material').value = item.name;
+    document.getElementById('client-catalog-unit').value = item.unit;
+    document.getElementById('client-catalog-price').value = item.defaultPrice;
+    document.getElementById('save-client-catalog-item-btn').innerHTML =
+      '<i class="fa-solid fa-floppy-disk"></i><span>حفظ التعديل</span>';
+    document.getElementById('cancel-client-catalog-edit-btn').classList.remove('hidden');
+    document.getElementById('client-catalog-material').focus();
+    return;
+  }
+  if (!confirm(`هل تريد حذف "${item.name}" من تسعيرة هذا العميل؟`)) return;
+  const updatedEntries = entries.filter(entry => entry.name !== item.name);
+  const updatedCatalogs = { ...state.clientCatalogs };
+  if (updatedEntries.length) updatedCatalogs[client] = updatedEntries;
+  else delete updatedCatalogs[client];
+  try {
+    writeStoredJson(STORAGE_KEYS.CLIENT_CATALOGS, updatedCatalogs);
+  } catch (error) {
+    console.error('تعذر حذف مادة من تسعيرة العميل:', error);
+    return;
+  }
+  state.clientCatalogs = updatedCatalogs;
+  if (state.editingCatalogItem === item.name) resetClientCatalogForm();
+  renderClientCatalogList();
+  renderQuickMaterialSelect();
+  showToast('تم حذف المادة من تسعيرة العميل.', 'info');
 }
 
 function renderMaterialsModalList() {
@@ -785,10 +1091,13 @@ function renderMaterialsModalList() {
     const name = document.createElement('span');
     name.className = 'truncate';
     name.textContent = material.name;
+    const unit = document.createElement('span');
+    unit.className = 'whitespace-nowrap text-slate-500';
+    unit.textContent = material.unit;
     const price = document.createElement('span');
     price.className = 'whitespace-nowrap text-slate-500';
     price.textContent = `${Number(material.defaultPrice).toLocaleString('ar-SA')} ر.س`;
-    details.append(icon, name, price);
+    details.append(icon, name, unit, price);
 
     const actions = document.createElement('div');
     actions.className = 'flex items-center gap-2 flex-shrink-0';
@@ -852,6 +1161,10 @@ function initEventListeners() {
     clientsList.addEventListener('click', event => {
       const button = event.target.closest('button[data-client-delete]');
       if (button && clientsList.contains(button)) deleteClient(button.dataset.clientDelete);
+      const catalogButton = event.target.closest('button[data-client-catalog]');
+      if (catalogButton && clientsList.contains(catalogButton)) {
+        openClientCatalogEditor(catalogButton.dataset.clientCatalog);
+      }
     });
   }
 
@@ -887,6 +1200,10 @@ function initEventListeners() {
     matSelect.addEventListener('change', (e) => {
       selectMaterial(e.target.value);
     });
+  }
+  const tripClientSelect = document.getElementById('client-select');
+  if (tripClientSelect) {
+    tripClientSelect.addEventListener('change', renderQuickMaterialSelect);
   }
 
   // أزرار زيادة ونقصان عدد الردود
@@ -932,9 +1249,23 @@ function initEventListeners() {
   }
   if (editMatSelect) {
     editMatSelect.addEventListener('change', (e) => {
-      const mat = state.materials.find(m => m.name === e.target.value);
+      const selectedClient = document.getElementById('edit-client-select').value;
+      const mat = getClientCatalogItem(selectedClient, e.target.value)
+        || state.materials.find(m => m.name === e.target.value);
       if (mat && editPriceInput) {
         editPriceInput.value = mat.defaultPrice;
+        updateEditModalTotal();
+      }
+    });
+  }
+  const editClientSelect = document.getElementById('edit-client-select');
+  if (editClientSelect) {
+    editClientSelect.addEventListener('change', () => {
+      renderEditMaterialSelectForClient(editClientSelect.value);
+      const item = getClientCatalogItem(editClientSelect.value, editMatSelect?.value)
+        || state.materials.find(material => material.name === editMatSelect?.value);
+      if (item && editPriceInput) {
+        editPriceInput.value = item.defaultPrice;
         updateEditModalTotal();
       }
     });
@@ -1023,6 +1354,33 @@ function initEventListeners() {
   if (closeClientModalBtn) closeClientModalBtn.addEventListener('click', closeClientModal);
   if (doneClientModalBtn) doneClientModalBtn.addEventListener('click', closeClientModal);
   if (addClientForm) addClientForm.addEventListener('submit', handleAddClient);
+  const clientCatalogForm = document.getElementById('client-catalog-form');
+  const cancelCatalogEditBtn = document.getElementById('cancel-client-catalog-edit-btn');
+  const clientCatalogList = document.getElementById('client-catalog-list');
+  const openClientCatalogModalBtn = document.getElementById('open-client-catalog-modal-btn');
+  const clientCatalogClientSelect = document.getElementById('client-catalog-client-select');
+  const closeClientCatalogModalBtn = document.getElementById('close-client-catalog-modal-btn');
+  const doneClientCatalogModalBtn = document.getElementById('done-client-catalog-modal-btn');
+  const clientCatalogModal = document.getElementById('client-catalog-modal');
+  if (openClientCatalogModalBtn) openClientCatalogModalBtn.addEventListener('click', () => openClientCatalogEditor());
+  if (closeClientCatalogModalBtn) closeClientCatalogModalBtn.addEventListener('click', closeClientCatalogModal);
+  if (doneClientCatalogModalBtn) doneClientCatalogModalBtn.addEventListener('click', closeClientCatalogModal);
+  if (clientCatalogModal) {
+    clientCatalogModal.addEventListener('click', event => {
+      if (event.target === clientCatalogModal) closeClientCatalogModal();
+    });
+  }
+  if (clientCatalogClientSelect) {
+    clientCatalogClientSelect.addEventListener('change', () => {
+      resetClientCatalogForm();
+      renderClientCatalogList();
+    });
+  }
+  if (clientCatalogForm) clientCatalogForm.addEventListener('submit', handleSaveClientCatalogItem);
+  if (cancelCatalogEditBtn) cancelCatalogEditBtn.addEventListener('click', resetClientCatalogForm);
+  if (clientCatalogList) {
+    clientCatalogList.addEventListener('click', handleClientCatalogAction);
+  }
 
   // إدارة المواد وأسعارها الافتراضية
   const openMaterialModalBtn = document.getElementById('open-material-modal-btn');
@@ -1082,6 +1440,7 @@ function handleSaveTrip(e) {
     date,
     client,
     material,
+    unit: getClientMaterials(client).find(item => item.name === material)?.unit || 'رد',
     truck,
     count,
     price,
@@ -1129,6 +1488,7 @@ function handleSaveTrip(e) {
 
 function resetTripForm() {
   document.getElementById('trip-form').reset();
+  renderQuickMaterialSelect();
   initFormDefaults();
   selectMaterial(state.materials[0]?.name || '');
   updateRealtimeTotal();
@@ -1561,23 +1921,47 @@ function updateStats() {
 
   // إجمالي نقلات الشهر الحالي
   const currentMonthTrips = state.trips.filter(t => t.date && t.date.startsWith(currentMonthStr));
-  const currentMonthLoads = currentMonthTrips.reduce((acc, t) => acc + (t.count || 1), 0);
+  const monthlyClientTripCounts = new Map(state.clients.map(client => [client, 0]));
+  currentMonthTrips.forEach(trip => {
+    if (monthlyClientTripCounts.has(trip.client)) {
+      monthlyClientTripCounts.set(trip.client, monthlyClientTripCounts.get(trip.client) + 1);
+    }
+  });
 
   // إجمالي نقلات المخلفات في الشهر الحالي
   const wasteTrips = currentMonthTrips.filter(t => String(t.material || '').includes('مخلفات'));
-  const wasteLoads = wasteTrips.reduce((acc, t) => acc + (t.count || 1), 0);
 
-  // إجمالي نقلات المواد والخدمات باستثناء المخلفات.
-  const otherMaterialTrips = currentMonthTrips.filter(t => !String(t.material || '').includes('مخلفات'));
-  const otherMaterialLoads = otherMaterialTrips.reduce((acc, t) => acc + (t.count || 1), 0);
+  document.getElementById('stat-current-month-trips').textContent = `${currentMonthTrips.length}`;
+  document.getElementById('stat-waste-trips').textContent = `${wasteTrips.length}`;
 
-  // الإجمالي التراكمي الكلي
-  const totalLoads = state.trips.reduce((acc, t) => acc + (t.count || 1), 0);
-
-  document.getElementById('stat-current-month-trips').textContent = `${currentMonthLoads}`;
-  document.getElementById('stat-waste-trips').textContent = `${wasteLoads}`;
-  document.getElementById('stat-corporate-trips').textContent = `${otherMaterialLoads}`;
-  document.getElementById('stat-total-trips').textContent = `${totalLoads}`;
+  const clientCards = document.getElementById('client-stat-cards');
+  if (clientCards) {
+    clientCards.replaceChildren();
+    state.clients.forEach((client, index) => {
+      const tripCount = monthlyClientTripCounts.get(client) || 0;
+      const card = document.createElement('div');
+      card.className = 'stat-card bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-sm flex items-center justify-between';
+      const details = document.createElement('div');
+      details.className = 'min-w-0';
+      const label = document.createElement('p');
+      label.className = 'text-xs sm:text-sm font-semibold text-slate-500 mb-1 truncate';
+      label.textContent = client;
+      const count = document.createElement('h3');
+      count.className = `text-2xl sm:text-3xl font-extrabold ${index % 2 ? 'text-emerald-600' : 'text-amber-600'}`;
+      count.textContent = String(tripCount);
+      const caption = document.createElement('p');
+      caption.className = 'text-xs text-slate-400 mt-1 font-medium';
+      caption.textContent = 'نقلة مسجلة هذا الشهر';
+      details.append(label, count, caption);
+      const icon = document.createElement('div');
+      icon.className = `w-12 h-12 rounded-xl ${index % 2 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'} flex items-center justify-center text-xl`;
+      const iconElement = document.createElement('i');
+      iconElement.className = 'fa-solid fa-building';
+      icon.appendChild(iconElement);
+      card.append(details, icon);
+      clientCards.appendChild(card);
+    });
+  }
 
   // شارة العدد في التبويب
   const badgeCount = document.getElementById('records-badge-count');
@@ -1624,7 +2008,7 @@ function renderTripsTable() {
   const filtered = getFilteredTrips();
 
   shownCount.textContent = filtered.length;
-  shownLoads.textContent = filtered.reduce((acc, t) => acc + (t.count || 1), 0);
+  shownLoads.textContent = formatQuantityByUnit(filtered);
   const totalAmount = filtered.reduce((acc, t) => acc + (t.total !== undefined ? t.total : ((t.count || 1) * (t.price || 0))), 0);
   const shownTotalEl = document.getElementById('shown-trips-total');
   if (shownTotalEl) shownTotalEl.textContent = totalAmount.toLocaleString('ar-SA');
@@ -1665,7 +2049,7 @@ function renderTripsTable() {
         ${trip.truck ? `<span class="bg-slate-100 border border-slate-200 px-2 py-0.5 rounded text-xs font-mono">${escapeHtml(trip.truck)}</span>` : '<span class="text-slate-400 text-xs">غير محدد</span>'}
       </td>
       <td class="py-3 px-4 text-center font-black text-brand-700">
-        ${trip.count || 1}
+        ${trip.count || 1} <span class="text-[10px] text-slate-400">${escapeHtml(trip.unit || 'رد')}</span>
       </td>
       <td class="py-3 px-4 text-center font-bold text-slate-700 font-mono whitespace-nowrap text-xs">
         ${tripPrice.toLocaleString('ar-SA')} <span class="text-[10px] text-slate-400">ر.س</span>
@@ -1776,45 +2160,47 @@ function renderStatementView() {
   document.getElementById('stmt-period-label').textContent = monthLabel;
 
   // إجمالي الردود والمبالغ
-  const totalLoads = tripsForStmt.reduce((sum, t) => sum + (t.count || 1), 0);
   const totalAmount = tripsForStmt.reduce((sum, t) => sum + (t.total !== undefined ? t.total : ((t.count || 1) * (t.price || 0))), 0);
 
-  document.getElementById('stmt-total-trips-count').textContent = `${totalLoads} رد`;
+  document.getElementById('stmt-total-trips-count').textContent = formatQuantityByUnit(tripsForStmt);
   const stmtTotalAmountEl = document.getElementById('stmt-total-amount');
   if (stmtTotalAmountEl) stmtTotalAmountEl.textContent = `${totalAmount.toLocaleString('ar-SA')} ر.س`;
 
   // تجميع الإحصائية حسب نوع المادة / الخدمة مع المبالغ
-  const breakdown = {};
+  const breakdown = new Map();
   tripsForStmt.forEach(t => {
     const mat = t.material || 'غير محدد';
+    const unit = t.unit || 'رد';
     const c = t.count || 1;
     const p = t.price !== undefined ? t.price : (state.materials.find(m => m.name === mat)?.defaultPrice || 0);
     const itemTotal = t.total !== undefined ? t.total : (c * p);
 
-    if (!breakdown[mat]) {
-      breakdown[mat] = { count: 0, totalAmount: 0 };
+    const key = JSON.stringify([mat, unit]);
+    if (!breakdown.has(key)) {
+      breakdown.set(key, { material: mat, unit, count: 0, totalAmount: 0 });
     }
-    breakdown[mat].count += c;
-    breakdown[mat].totalAmount += itemTotal;
+    const entry = breakdown.get(key);
+    entry.count += c;
+    entry.totalAmount += itemTotal;
   });
 
   // تعبئة جدول الملخص
   const summaryTbody = document.getElementById('stmt-summary-tbody');
   summaryTbody.innerHTML = '';
 
-  const entries = Object.entries(breakdown);
+  const entries = [...breakdown.values()];
   if (entries.length === 0) {
     summaryTbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400">لا توجد نقلات مسجلة لهذا العميل في الشهر المحدد</td></tr>`;
   } else {
-    entries.forEach(([mat, data], idx) => {
-      const percentage = totalLoads > 0 ? ((data.count / totalLoads) * 100).toFixed(1) : 0;
-      const unitPrice = data.count > 0 ? Math.round(data.totalAmount / data.count) : 0;
+    entries.forEach((data, idx) => {
+      const percentage = totalAmount > 0 ? ((data.totalAmount / totalAmount) * 100).toFixed(1) : '0.0';
+      const unitPrice = data.count > 0 ? data.totalAmount / data.count : 0;
       const row = document.createElement('tr');
       row.className = idx % 2 === 0 ? 'bg-white' : 'bg-slate-50';
       row.innerHTML = `
         <td class="p-2 border border-slate-200 text-center font-bold text-slate-500">${idx + 1}</td>
-        <td class="p-2 border border-slate-200 font-bold text-slate-800">${escapeHtml(mat)}</td>
-        <td class="p-2 border border-slate-200 text-center font-black text-brand-700">${data.count} رد</td>
+        <td class="p-2 border border-slate-200 font-bold text-slate-800">${escapeHtml(data.material)}</td>
+        <td class="p-2 border border-slate-200 text-center font-black text-brand-700">${data.count} ${escapeHtml(data.unit)}</td>
         <td class="p-2 border border-slate-200 text-center font-mono font-bold text-slate-700">${unitPrice.toLocaleString('ar-SA')} ر.س</td>
         <td class="p-2 border border-slate-200 text-center font-mono font-black text-emerald-700">${data.totalAmount.toLocaleString('ar-SA')} ر.س</td>
         <td class="p-2 border border-slate-200 text-slate-600 font-mono text-center">${percentage}%</td>
@@ -1827,10 +2213,10 @@ function renderStatementView() {
     totalRow.className = 'bg-slate-200 font-black text-slate-900 border border-slate-300';
     totalRow.innerHTML = `
       <td colspan="2" class="p-2 border border-slate-300 text-center">الإجمالي الكلي</td>
-      <td class="p-2 border border-slate-300 text-center text-brand-800 text-sm font-black">${totalLoads} رد</td>
+      <td class="p-2 border border-slate-300 text-center text-brand-800 text-sm font-black">${escapeHtml(formatQuantityByUnit(tripsForStmt))}</td>
       <td class="p-2 border border-slate-300 text-center font-bold text-slate-500">-</td>
       <td class="p-2 border border-slate-300 text-center text-emerald-800 text-sm font-black font-mono">${totalAmount.toLocaleString('ar-SA')} ر.س</td>
-      <td class="p-2 border border-slate-300 text-center">100%</td>
+      <td class="p-2 border border-slate-300 text-center">${totalAmount > 0 ? '100%' : '0%'}</td>
     `;
     summaryTbody.appendChild(totalRow);
   }
@@ -1853,7 +2239,7 @@ function renderStatementView() {
         <td class="p-2 border border-slate-200 font-mono text-slate-800 whitespace-nowrap">${escapeHtml(String(trip.date || '—'))}</td>
         <td class="p-2 border border-slate-200 font-bold text-slate-800">${escapeHtml(trip.material)}</td>
         <td class="p-2 border border-slate-200 font-mono text-slate-700">${escapeHtml(trip.truck || '-')}</td>
-        <td class="p-2 border border-slate-200 text-center font-black text-brand-700">${trip.count || 1}</td>
+        <td class="p-2 border border-slate-200 text-center font-black text-brand-700">${trip.count || 1} ${escapeHtml(trip.unit || 'رد')}</td>
         <td class="p-2 border border-slate-200 text-center font-mono font-bold text-slate-700">${tripPrice.toLocaleString('ar-SA')} ر.س</td>
         <td class="p-2 border border-slate-200 text-center font-mono font-black text-emerald-700">${tripTotal.toLocaleString('ar-SA')} ر.س</td>
         <td class="p-2 border border-slate-200 text-slate-600">${escapeHtml(trip.notes || '-')}</td>
@@ -1861,6 +2247,18 @@ function renderStatementView() {
       detailsTbody.appendChild(row);
     });
   }
+}
+
+function formatQuantityByUnit(trips) {
+  const totals = new Map();
+  trips.forEach(trip => {
+    const unit = trip.unit || 'رد';
+    totals.set(unit, (totals.get(unit) || 0) + (trip.count || 1));
+  });
+  if (!totals.size) return '0 رد';
+  return [...totals.entries()]
+    .map(([unit, count]) => `${count.toLocaleString('ar-SA')} ${unit}`)
+    .join(' · ');
 }
 
 /* =========================================================
@@ -1898,9 +2296,11 @@ function handleAddClient(e) {
   }
   state.clients = updatedClients;
   renderClientSelects();
+  renderDashboard();
 
   // تحديد العميل الجديد في القائمة الرئيسية فوراً
   document.getElementById('client-select').value = name;
+  renderQuickMaterialSelect();
 
   input.value = '';
   showToast(`تمت إضافة العميل [${name}] بنجاح`, 'success');
@@ -1919,14 +2319,29 @@ window.deleteClient = function(name) {
   }
 
   const updatedClients = state.clients.filter(client => client !== name);
+  const hadCatalog = Object.prototype.hasOwnProperty.call(state.clientCatalogs, name);
+  const updatedCatalogs = { ...state.clientCatalogs };
+  delete updatedCatalogs[name];
+  let clientsSaved = false;
   try {
     saveClients(updatedClients);
+    clientsSaved = true;
+    if (hadCatalog) writeStoredJson(STORAGE_KEYS.CLIENT_CATALOGS, updatedCatalogs);
   } catch (error) {
     console.error('تعذر حفظ حذف العميل:', error);
+    if (clientsSaved) {
+      try {
+        saveClients(state.clients);
+      } catch (rollbackError) {
+        console.error('تعذر التراجع عن حذف العميل بعد فشل حذف تسعيرته:', rollbackError);
+      }
+    }
     return;
   }
   state.clients = updatedClients;
+  if (hadCatalog) state.clientCatalogs = updatedCatalogs;
   renderClientSelects();
+  renderDashboard();
   showToast(`تم حذف العميل [${name}]`, 'info');
 };
 
@@ -1963,6 +2378,7 @@ function startEditMaterial(name) {
 
   state.editingMaterialName = material.name;
   document.getElementById('new-material-name').value = material.name;
+  document.getElementById('new-material-unit').value = material.unit;
   document.getElementById('new-material-price').value = material.defaultPrice;
   document.getElementById('save-material-btn').innerHTML = '<i class="fa-solid fa-check"></i><span>حفظ</span>';
   document.getElementById('new-material-name').focus();
@@ -1971,12 +2387,14 @@ function startEditMaterial(name) {
 function handleSaveMaterial(e) {
   e.preventDefault();
   const nameInput = document.getElementById('new-material-name');
+  const unitInput = document.getElementById('new-material-unit');
   const priceInput = document.getElementById('new-material-price');
   const name = nameInput.value.trim();
+  const unit = unitInput.value.trim();
   const defaultPrice = Number(priceInput.value);
 
-  if (!name || priceInput.value === '' || !Number.isFinite(defaultPrice) || defaultPrice < 0) {
-    showToast('يرجى إدخال اسم المادة وسعر افتراضي صحيح غير سالب', 'error');
+  if (!name || !unit || priceInput.value === '' || !Number.isFinite(defaultPrice) || defaultPrice < 0) {
+    showToast('يرجى إدخال اسم المادة ووحدتها وسعر افتراضي صحيح غير سالب', 'error');
     return;
   }
 
@@ -1997,9 +2415,9 @@ function handleSaveMaterial(e) {
       return;
     }
     const original = updatedMaterials[index];
-    updatedMaterials[index] = { ...original, name, defaultPrice };
+    updatedMaterials[index] = { ...original, name, unit, defaultPrice };
   } else {
-    updatedMaterials.push({ name, defaultPrice, icon: 'fa-cubes-stacked', badgeClass: 'badge-other' });
+    updatedMaterials.push({ name, unit, defaultPrice, icon: 'fa-cubes-stacked', badgeClass: 'badge-other' });
   }
 
   try {
@@ -2014,12 +2432,10 @@ function handleSaveMaterial(e) {
   renderMaterialsModalList();
 
   const mainSelect = document.getElementById('material-select');
-  if (!previousName) mainSelect.value = name;
-  initQuickChips();
-  if (mainSelect.value === name) {
-    document.getElementById('price-input').value = defaultPrice;
-    updateRealtimeTotal();
+  if (!previousName && Array.from(mainSelect.options).some(option => option.value === name)) {
+    mainSelect.value = name;
   }
+  renderQuickMaterialSelect();
 
   state.editingMaterialName = '';
   resetMaterialForm();
@@ -2042,14 +2458,12 @@ window.deleteMaterial = function(name) {
   }
   state.materials = updatedMaterials;
   renderMaterialSelects();
-  initQuickChips();
   renderMaterialsModalList();
 
   const mainSelect = document.getElementById('material-select');
   const priceInput = document.getElementById('price-input');
   if (mainSelect.value && priceInput) {
-    const material = state.materials.find(item => item.name === mainSelect.value);
-    if (material) priceInput.value = material.defaultPrice;
+    applySelectedQuickMaterial();
     updateRealtimeTotal();
   }
 
@@ -2088,10 +2502,14 @@ window.openEditModal = function(id) {
   if (!trip) return;
 
   const matInfo = state.materials.find(m => m.name === trip.material);
-  const tripPrice = trip.price !== undefined ? trip.price : (matInfo ? matInfo.defaultPrice : 0);
+  const catalogItem = getClientCatalogItem(trip.client, trip.material);
+  const tripPrice = trip.price !== undefined
+    ? trip.price
+    : catalogItem?.defaultPrice ?? matInfo?.defaultPrice ?? 0;
 
   document.getElementById('edit-trip-id').value = trip.id;
   document.getElementById('edit-client-select').value = trip.client;
+  renderEditMaterialSelectForClient(trip.client, trip.material);
   document.getElementById('edit-material-select').value = trip.material;
   document.getElementById('edit-truck-input').value = trip.truck || '';
   document.getElementById('edit-date-input').value = trip.date;
@@ -2134,11 +2552,16 @@ function handleUpdateTrip(e) {
   const price = parseFloat(document.getElementById('edit-price-input').value) || 0;
   const total = count * price;
   const notes = document.getElementById('edit-notes-input').value.trim();
+  const previousTrip = state.trips[tripIndex];
+  const unit = getClientCatalogItem(client, material)?.unit
+    || state.materials.find(item => item.name === material)?.unit
+    || (previousTrip.client === client && previousTrip.material === material ? previousTrip.unit : 'رد');
 
   const updatedTrips = state.trips.map((trip, index) => index === tripIndex ? {
     ...state.trips[tripIndex],
     client,
     material,
+    unit,
     truck,
     date,
     count,
@@ -2238,7 +2661,8 @@ function handleBackup() {
     clients: state.clients,
     materials: state.materials,
     trucks: state.trucks,
-    accounts: state.accounts
+    accounts: state.accounts,
+    clientCatalogs: state.clientCatalogs
   };
 
   const jsonString = JSON.stringify(backupData, null, 2);
@@ -2284,7 +2708,10 @@ function handleRestore(e) {
     const restoredMaterials = Array.isArray(data.materials)
       ? normalizeMaterials(data.materials)
       : state.materials;
-    const restoredTrips = normalizeTrips(data.trips, restoredMaterials);
+    const restoredClientCatalogs = data.clientCatalogs && typeof data.clientCatalogs === 'object' && !Array.isArray(data.clientCatalogs)
+      ? normalizeClientCatalogs(data.clientCatalogs)
+      : {};
+    const restoredTrips = normalizeTrips(data.trips, restoredMaterials, restoredClientCatalogs);
     const restoredAccounts = Array.isArray(data.accounts)
       ? normalizeAccounts(data.accounts)
       : state.accounts;
@@ -2302,7 +2729,8 @@ function handleRestore(e) {
       STORAGE_KEYS.CLIENTS,
       STORAGE_KEYS.MATERIALS,
       STORAGE_KEYS.TRUCKS,
-      STORAGE_KEYS.ACCOUNTS
+      STORAGE_KEYS.ACCOUNTS,
+      STORAGE_KEYS.CLIENT_CATALOGS
     ];
     const previousValues = new Map();
     try {
@@ -2320,7 +2748,8 @@ function handleRestore(e) {
       [STORAGE_KEYS.CLIENTS, restoredClients],
       [STORAGE_KEYS.MATERIALS, restoredMaterials],
       [STORAGE_KEYS.TRUCKS, restoredTrucks],
-      [STORAGE_KEYS.ACCOUNTS, restoredAccounts]
+      [STORAGE_KEYS.ACCOUNTS, restoredAccounts],
+      [STORAGE_KEYS.CLIENT_CATALOGS, restoredClientCatalogs]
     ];
     const savedKeys = [];
 
@@ -2352,11 +2781,11 @@ function handleRestore(e) {
     state.materials = restoredMaterials;
     state.trucks = restoredTrucks;
     state.accounts = restoredAccounts;
+    state.clientCatalogs = restoredClientCatalogs;
     renderClientSelects();
     renderAccountLedger();
     renderMaterialSelects();
     state.filters.material = document.getElementById('filter-material').value;
-    initQuickChips();
     renderMaterialsModalList();
     renderTruckSuggestions();
     renderDashboard();

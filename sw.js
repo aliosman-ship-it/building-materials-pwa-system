@@ -1,4 +1,4 @@
-const CACHE_NAME = 'saad-alqahtani-app-v7';
+const CACHE_NAME = 'saad-alqahtani-app-v9';
 const CORE_FILES = [
   './',
   './index.html',

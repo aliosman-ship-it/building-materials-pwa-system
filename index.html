@@ -224,7 +224,11 @@
         </button>
         <button id="open-material-modal-btn" class="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-700/80 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition border border-slate-600">
           <i class="fa-solid fa-cubes-stacked text-emerald-400"></i>
-          <span>إدارة المواد</span>
+          <span>إدارة المواد والأسعار</span>
+        </button>
+        <button id="open-client-catalog-modal-btn" type="button" class="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-700/80 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition border border-slate-600">
+          <i class="fa-solid fa-tags text-amber-400"></i>
+          <span>تخصيص أسعار العملاء</span>
         </button>
         <button id="pin-settings-btn" type="button" class="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-700/80 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-bold transition border border-slate-600 min-h-11">
           <i class="fa-solid fa-shield-halved text-amber-400"></i>
@@ -276,29 +280,7 @@
         </div>
       </div>
 
-      <!-- نقلات المواد والخدمات الأخرى -->
-      <div class="stat-card bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-sm flex items-center justify-between">
-        <div>
-          <p class="text-xs sm:text-sm font-semibold text-slate-500 mb-1">نقلات المواد والخدمات الأخرى</p>
-          <h3 id="stat-corporate-trips" class="text-2xl sm:text-3xl font-extrabold text-amber-600">0</h3>
-          <p class="text-xs text-amber-600 mt-1 font-medium">باستثناء نقل المخلفات</p>
-        </div>
-        <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-xl">
-          <i class="fa-solid fa-building-wheat"></i>
-        </div>
-      </div>
-
-      <!-- الإجمالي العام التراكمي -->
-      <div class="stat-card bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-sm flex items-center justify-between">
-        <div>
-          <p class="text-xs sm:text-sm font-semibold text-slate-500 mb-1">إجمالي كل النقلات المسجلة</p>
-          <h3 id="stat-total-trips" class="text-2xl sm:text-3xl font-extrabold text-slate-800">0</h3>
-          <p class="text-xs text-emerald-600 mt-1 font-medium">سجل النقل الكامل</p>
-        </div>
-        <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl">
-          <i class="fa-solid fa-list-check"></i>
-        </div>
-      </div>
+      <div id="client-stat-cards" class="contents"></div>
     </section>
 
     <!-- نموذج التسجيل فائق السرعة (Quick Entry Form) -->
@@ -387,7 +369,7 @@
 
           <!-- عدد النقلات (الردود) -->
           <div class="space-y-1.5">
-            <label for="count-input" class="block text-sm font-bold text-slate-700">عدد النقلات (الردود)</label>
+            <label for="count-input" class="block text-sm font-bold text-slate-700">عدد النقلات (<span id="count-unit-label">رد</span>)</label>
             <div class="flex items-center">
               <button type="button" id="btn-decrease-count" class="w-11 h-11 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-r-xl flex items-center justify-center font-bold text-lg transition">-</button>
               <input type="number" id="count-input" value="1" min="1" max="50" class="w-full h-11 text-center bg-slate-50 border-y border-slate-300 text-slate-900 font-bold text-base focus:bg-white">
@@ -399,7 +381,7 @@
           <div class="space-y-1.5">
             <div class="flex items-center justify-between">
               <label for="price-input" class="block text-sm font-bold text-slate-700">
-                السعر للرد <span class="text-rose-500">*</span>
+                السعر لكل <span id="price-unit-label">رد</span> <span class="text-rose-500">*</span>
               </label>
               <span id="price-auto-badge" class="text-[10px] bg-brand-50 text-brand-700 font-bold px-1.5 py-0.5 rounded border border-brand-200">سعر افتراضي قابل للتعديل</span>
             </div>
@@ -532,7 +514,7 @@
                 <th class="py-3 px-4">اسم العميل</th>
                 <th class="py-3 px-4">نوع المادة / الخدمة</th>
                 <th class="py-3 px-4">رقم السيارة / التريلا</th>
-                <th class="py-3 px-4 text-center">الردود</th>
+                <th class="py-3 px-4 text-center">الكمية / الوحدة</th>
                 <th class="py-3 px-4 text-center">السعر</th>
                 <th class="py-3 px-4 text-center">الإجمالي</th>
                 <th class="py-3 px-4">ملاحظات / تفاصيل</th>
@@ -559,7 +541,7 @@
           <div class="flex items-center gap-3">
             <span>عدد النتائج المعروضة: <strong id="shown-trips-count" class="text-slate-900 font-bold">0</strong> نقلة</span>
             <span>|</span>
-            <span>إجمالي الردود المعروضة: <strong id="shown-trips-loads" class="text-brand-700 font-bold">0</strong> رد</span>
+            <span>إجمالي الكميات المعروضة: <strong id="shown-trips-loads" class="text-brand-700 font-bold">0 رد</strong></span>
             <span>|</span>
             <span>إجمالي المبالغ: <strong id="shown-trips-total" class="text-emerald-700 font-bold">0</strong> ر.س</span>
           </div>
@@ -616,7 +598,7 @@
             <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b-2 border-slate-900 pb-4 gap-4">
               <div>
                 <h3 class="text-2xl font-black text-slate-900">شركة سعد فيصل القحطاني لتوريد مواد البناء</h3>
-                <p class="text-xs text-slate-500 mt-1">كشف حصر النقلات والردود الشهرية لأعمال المقاولات والمشاريع</p>
+                <p class="text-xs text-slate-500 mt-1">كشف حصر النقلات والكميات الشهرية لأعمال المقاولات والمشاريع</p>
               </div>
               <div class="text-left bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
                 <p><span class="font-bold text-slate-700">تاريخ إصدار الكشف:</span> <span id="stmt-issued-date">-</span></p>
@@ -635,7 +617,7 @@
                 <span id="stmt-period-label" class="font-bold text-slate-800">-</span>
               </div>
               <div>
-                <span class="text-xs text-slate-500 block font-semibold">إجمالي الردود المعتمدة:</span>
+                <span class="text-xs text-slate-500 block font-semibold">إجمالي الكميات المعتمدة:</span>
                 <span id="stmt-total-trips-count" class="font-black text-lg text-brand-700">0 رد</span>
               </div>
               <div>
@@ -648,7 +630,7 @@
             <div class="space-y-2">
               <h4 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
                 <i class="fa-solid fa-chart-pie text-brand-600"></i>
-                <span>أولاً: ملخص الردود والمبالغ حسب نوع الخدمة / المادة:</span>
+                <span>أولاً: ملخص الكميات والمبالغ حسب نوع الخدمة / المادة:</span>
               </h4>
               <div class="overflow-x-auto">
                 <table class="w-full text-right border-collapse text-xs sm:text-sm">
@@ -656,10 +638,10 @@
                     <tr class="bg-slate-200 text-slate-800 font-bold">
                       <th class="p-2.5 border border-slate-300">م</th>
                       <th class="p-2.5 border border-slate-300">نوع المادة / الخدمة</th>
-                      <th class="p-2.5 border border-slate-300 text-center">عدد النقلات (الردود)</th>
-                      <th class="p-2.5 border border-slate-300 text-center">سعر الرد</th>
+                      <th class="p-2.5 border border-slate-300 text-center">الكمية / الوحدة</th>
+                      <th class="p-2.5 border border-slate-300 text-center">سعر الوحدة</th>
                       <th class="p-2.5 border border-slate-300 text-center">إجمالي المبلغ (ر.س)</th>
-                      <th class="p-2.5 border border-slate-300 text-center">النسبة</th>
+                      <th class="p-2.5 border border-slate-300 text-center">النسبة من الإجمالي</th>
                     </tr>
                   </thead>
                   <tbody id="stmt-summary-tbody">
@@ -683,7 +665,7 @@
                       <th class="p-2 border border-slate-200">التاريخ</th>
                       <th class="p-2 border border-slate-200">المادة / الخدمة</th>
                       <th class="p-2 border border-slate-200">رقم السيارة / التريلا</th>
-                      <th class="p-2 border border-slate-200 text-center">عدد الردود</th>
+                      <th class="p-2 border border-slate-200 text-center">الكمية / الوحدة</th>
                       <th class="p-2 border border-slate-200 text-center">السعر</th>
                       <th class="p-2 border border-slate-200 text-center">الإجمالي</th>
                       <th class="p-2 border border-slate-200">ملاحظات / بون</th>
@@ -909,6 +891,7 @@
             <!-- تعبأ ديناميكياً -->
           </ul>
         </div>
+
       </div>
       
       <div class="bg-slate-50 px-5 py-3 border-t border-slate-200 text-left">
@@ -933,8 +916,9 @@
       </div>
 
       <div class="app-modal-content p-5 space-y-4">
-        <form id="material-form" class="grid grid-cols-1 sm:grid-cols-[1fr_130px_auto] gap-2">
+        <form id="material-form" class="grid grid-cols-1 sm:grid-cols-[1fr_110px_130px_auto] gap-2">
           <input type="text" id="new-material-name" placeholder="اسم المادة أو الخدمة..." required class="w-full h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white">
+          <input type="text" id="new-material-unit" value="رد" maxlength="30" placeholder="الوحدة" aria-label="وحدة المادة" required class="w-full h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white">
           <input type="number" id="new-material-price" min="0" step="any" placeholder="السعر الافتراضي" aria-label="السعر الافتراضي بالريال" required class="w-full h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white">
           <button id="save-material-btn" type="submit" class="h-11 px-4 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5">
             <i class="fa-solid fa-plus"></i>
@@ -952,6 +936,64 @@
         <button type="button" id="done-material-modal-btn" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-bold transition">
           إغلاق
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- نافذة مودال: تخصيص مواد وأسعار العملاء -->
+  <div id="client-catalog-modal" class="app-modal fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="client-catalog-modal-title">
+    <div class="app-modal-dialog bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
+      <div class="app-modal-header bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
+        <h3 id="client-catalog-modal-title" class="text-base font-bold flex items-center gap-2">
+          <i class="fa-solid fa-tags text-amber-400"></i>
+          <span>تخصيص أسعار ومواد العملاء</span>
+        </h3>
+        <button id="close-client-catalog-modal-btn" type="button" class="app-modal-close text-slate-400 hover:text-white text-lg" aria-label="إغلاق تخصيص أسعار العملاء">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="app-modal-content p-5 space-y-5">
+        <div class="space-y-1.5">
+          <label for="client-catalog-client-select" class="block text-sm font-bold text-slate-700">العميل / الشركة</label>
+          <select id="client-catalog-client-select" class="w-full h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white"></select>
+          <p class="text-xs text-slate-500">تُستخدم هذه القائمة بدلاً من المواد العامة لهذا العميل. اتركها فارغة لاستخدام الكتالوج العام.</p>
+        </div>
+
+        <div class="space-y-2">
+          <h4 class="text-sm font-bold text-slate-800">المواد والأسعار المخصصة</h4>
+          <div class="overflow-x-auto border border-slate-200 rounded-xl">
+            <table class="w-full min-w-[560px] text-right border-collapse text-xs sm:text-sm">
+              <thead>
+                <tr class="bg-slate-100 text-slate-700 font-bold">
+                  <th class="p-3 border-b border-slate-200">المادة / الخدمة</th>
+                  <th class="p-3 border-b border-slate-200">الوحدة</th>
+                  <th class="p-3 border-b border-slate-200 text-center">السعر الافتراضي (ر.س)</th>
+                  <th class="p-3 border-b border-slate-200 text-center w-28">الإجراءات</th>
+                </tr>
+              </thead>
+              <tbody id="client-catalog-list" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <form id="client-catalog-form" class="grid grid-cols-1 sm:grid-cols-[1fr_120px_150px_auto] gap-2 border-t border-slate-200 pt-4">
+          <input id="client-catalog-material" type="text" required maxlength="120" placeholder="المادة أو الخدمة" class="w-full h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white">
+          <input id="client-catalog-unit" type="text" required maxlength="30" value="رد" placeholder="الوحدة" aria-label="الوحدة المخصصة" class="w-full h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white">
+          <input id="client-catalog-price" type="number" min="0" step="any" required placeholder="السعر الافتراضي" aria-label="السعر الافتراضي بالريال" class="w-full h-11 px-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:bg-white">
+          <div class="flex items-center gap-2">
+            <button id="save-client-catalog-item-btn" type="submit" class="h-11 px-4 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 whitespace-nowrap">
+              <i class="fa-solid fa-plus"></i><span>إضافة</span>
+            </button>
+            <button id="cancel-client-catalog-edit-btn" type="button" class="hidden h-11 px-3 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl text-xs transition whitespace-nowrap">
+              إلغاء
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div class="bg-slate-50 px-5 py-3 border-t border-slate-200 text-left">
+        <button type="button" id="done-client-catalog-modal-btn" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-bold transition">إغلاق</button>
       </div>
     </div>
   </div>

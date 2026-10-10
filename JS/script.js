@@ -10,7 +10,8 @@ const STORAGE_KEYS = {
   MATERIALS: 'dad_transport_materials_v1',
   TRUCKS: 'dad_transport_trucks_v1',
   ACCOUNTS: 'dad_transport_accounts_v1',
-  CLIENT_CATALOGS: 'dad_transport_client_catalogs_v1'
+  CLIENT_CATALOGS: 'dad_transport_client_catalogs_v1',
+  PAYMENTS: 'materials_data'
 };
 const STANDARD_MATERIALS = [
   { name: 'رمل ابيض بناء', unit: 'تريلا 20م', defaultPrice: 0, icon: 'fa-cubes-stacked', badgeClass: 'badge-other' },
@@ -32,6 +33,7 @@ const state = {
   materials: [],
   trucks: [],
   accounts: [],
+  payments: [],
   clientCatalogs: {},
   editingCatalogItem: '',
   activeTab: 'records', // 'records' | 'monthly' | 'accounts'
@@ -201,6 +203,7 @@ function initStorage() {
     .filter(truck => typeof truck === 'string' && truck.trim())
     .map(truck => truck.trim());
   state.trips = normalizeTrips(readStoredArray(STORAGE_KEYS.TRIPS, 'النقلات'), state.materials, state.clientCatalogs);
+  state.payments = normalizePayments(readStoredArray(STORAGE_KEYS.PAYMENTS, 'الدفعات النقدية'));
 }
 
 function normalizeMaterials(materials) {
@@ -270,6 +273,29 @@ function normalizeTrips(trips, materials, clientCatalogs = {}) {
         notes: typeof trip.notes === 'string' ? trip.notes : ''
       };
     });
+}
+
+function normalizePayments(payments) {
+  return payments
+    .filter(payment =>
+      payment &&
+      typeof payment === 'object' &&
+      !Array.isArray(payment) &&
+      typeof payment.client === 'string' &&
+      payment.client.trim() &&
+      Number.isFinite(Number(payment.amount)) &&
+      Number(payment.amount) > 0
+    )
+    .map(payment => ({
+      id: typeof payment.id === 'string' && payment.id
+        ? payment.id
+        : `payment_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'payment',
+      client: payment.client.trim(),
+      amount: Number(payment.amount),
+      date: typeof payment.date === 'string' ? payment.date : '',
+      note: typeof payment.note === 'string' ? payment.note : ''
+    }));
 }
 
 function readStoredArray(key, label) {
@@ -518,6 +544,10 @@ function saveTrips(trips = state.trips) {
   writeStoredJson(STORAGE_KEYS.TRIPS, trips);
 }
 
+function savePayments(payments = state.payments) {
+  writeStoredJson(STORAGE_KEYS.PAYMENTS, payments);
+}
+
 function saveClients(clients = state.clients) {
   writeStoredJson(STORAGE_KEYS.CLIENTS, clients);
 }
@@ -641,8 +671,8 @@ function updateRealtimeTotal() {
   const total = count * price;
 
   totalDisplay.textContent = Number.isInteger(total)
-    ? total.toLocaleString('ar-SA')
-    : total.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    ? total.toLocaleString('en-US')
+    : total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // إنشاء شرائح الاختيار السريع للمواد (Quick Chips)
@@ -827,7 +857,8 @@ function renderClientSelects() {
     document.getElementById('statement-client-select'),
     document.getElementById('edit-client-select'),
     document.getElementById('account-client-input'),
-    document.getElementById('client-catalog-client-select')
+    document.getElementById('client-catalog-client-select'),
+    document.getElementById('payment-client-select')
   ];
 
   selects.forEach(select => {
@@ -839,9 +870,11 @@ function renderClientSelects() {
       ? 'كل العملاء'
       : select.id === 'statement-client-select' || select.id === 'account-client-input'
         ? 'اختر العميل'
-        : select.id === 'client-catalog-client-select'
-          ? 'اختر العميل لتخصيص أسعاره'
-        : 'أضف عميلاً من إدارة العملاء أولاً';
+        : select.id === 'payment-client-select'
+          ? 'اختر العميل'
+          : select.id === 'client-catalog-client-select'
+            ? 'اختر العميل لتخصيص أسعاره'
+            : 'أضف عميلاً من إدارة العملاء أولاً';
     select.innerHTML = `<option value="">${placeholder}</option>`;
 
     state.clients.forEach(client => {
@@ -959,7 +992,7 @@ function renderClientCatalogList() {
     unitCell.textContent = item.unit;
     const priceCell = document.createElement('td');
     priceCell.className = 'p-3 text-center font-mono';
-    priceCell.textContent = Number(item.defaultPrice).toLocaleString('ar-SA');
+    priceCell.textContent = Number(item.defaultPrice).toLocaleString('en-US');
     const actionsCell = document.createElement('td');
     actionsCell.className = 'p-2 text-center whitespace-nowrap';
     const actions = document.createElement('div');
@@ -1093,6 +1126,7 @@ function initEventListeners() {
       const { tripAction, tripId } = button.dataset;
       if (tripAction === 'delete') deleteTrip(tripId);
       if (tripAction === 'edit') window.openEditModal(tripId);
+      if (tripAction === 'delete-payment') deletePayment(tripId);
     });
   }
 
@@ -1245,6 +1279,22 @@ function initEventListeners() {
   if (accountClientInput) accountClientInput.addEventListener('change', updateAccountRemainingPreview);
   if (accountAmountInput) accountAmountInput.addEventListener('input', updateAccountRemainingPreview);
   if (accountTypeInput) accountTypeInput.addEventListener('change', updateAccountRemainingPreview);
+
+  const paymentForm = document.getElementById('payment-form');
+  const paymentModal = document.getElementById('payment-modal');
+  const closePaymentModalBtn = document.getElementById('close-payment-modal-btn');
+  const cancelPaymentBtn = document.getElementById('cancel-payment-btn');
+  if (paymentForm) paymentForm.addEventListener('submit', handleSavePayment);
+  if (closePaymentModalBtn) closePaymentModalBtn.addEventListener('click', closePaymentModal);
+  if (cancelPaymentBtn) cancelPaymentBtn.addEventListener('click', closePaymentModal);
+  if (paymentModal) {
+    paymentModal.addEventListener('click', event => {
+      if (event.target === paymentModal) closePaymentModal();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !paymentModal.classList.contains('hidden')) closePaymentModal();
+    });
+  }
 
   // فلاتر جدول النقلات
   const filterClient = document.getElementById('filter-client');
@@ -1409,7 +1459,7 @@ function handleSaveTrip(e) {
     renderTruckSuggestions();
   }
 
-  showToast(`تم حفظ نقلة (${material}) بقيمة [${total.toLocaleString('ar-SA')} ر.س] بنجاح!`, 'success');
+  showToast(`تم حفظ نقلة (${material}) بقيمة [${total.toLocaleString('en-US')} ر.س] بنجاح!`, 'success');
 
   // تنظيف الحقول مع الاحتفاظ بالتاريخ والعميل لتسريع الإدخال المتكرر
   document.getElementById('truck-input').value = '';
@@ -1423,6 +1473,58 @@ function handleSaveTrip(e) {
   // تحديث العرض
   renderDashboard();
   renderStatementView();
+}
+
+function openPaymentModal() {
+  const form = document.getElementById('payment-form');
+  const modal = document.getElementById('payment-modal');
+  if (!form || !modal) return;
+  renderClientSelects();
+  form.reset();
+  document.getElementById('payment-date-input').value = getTodayString();
+  modal.classList.remove('hidden');
+  document.getElementById('payment-client-select').focus();
+}
+
+function closePaymentModal() {
+  const modal = document.getElementById('payment-modal');
+  const form = document.getElementById('payment-form');
+  if (modal) modal.classList.add('hidden');
+  if (form) form.reset();
+}
+
+function handleSavePayment(event) {
+  event.preventDefault();
+  const client = document.getElementById('payment-client-select').value.trim();
+  const amount = Number(document.getElementById('payment-amount-input').value);
+  const date = document.getElementById('payment-date-input').value;
+  const note = document.getElementById('payment-note-input').value.trim();
+
+  if (!client || !state.clients.includes(client) || !Number.isFinite(amount) || amount <= 0 || !date) {
+    showToast('يرجى اختيار العميل وإدخال مبلغ وتاريخ صحيحين.', 'error');
+    return;
+  }
+
+  const payment = {
+    id: `payment_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    type: 'payment',
+    client,
+    amount,
+    date,
+    note
+  };
+  const updatedPayments = [payment, ...state.payments];
+  try {
+    savePayments(updatedPayments);
+  } catch (error) {
+    console.error('تعذر حفظ الدفعة النقدية:', error);
+    return;
+  }
+
+  state.payments = updatedPayments;
+  closePaymentModal();
+  renderDashboard();
+  showToast(`تم تسجيل دفعة نقدية بقيمة ${formatMoney(amount)} ر.س للعميل ${client}.`, 'success');
 }
 
 function resetTripForm() {
@@ -1481,7 +1583,7 @@ function normalizeAccounts(accounts) {
 }
 
 function formatMoney(amount) {
-  return Number(amount).toLocaleString('ar-SA', { maximumFractionDigits: 2 });
+  return Number(amount).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
 function updateAccountRemainingPreview() {
@@ -1668,8 +1770,8 @@ function openCustomerStatement(accountId) {
   });
 
   document.getElementById('customer-statement-client').textContent = account.client;
-  document.getElementById('customer-statement-date').textContent = new Date().toLocaleDateString('ar-SA');
-  document.getElementById('customer-statement-count').textContent = events.length.toLocaleString('ar-SA');
+  document.getElementById('customer-statement-date').textContent = new Date().toLocaleDateString('en-US');
+  document.getElementById('customer-statement-count').textContent = events.length.toLocaleString('en-US');
 
   const tbody = document.getElementById('customer-statement-tbody');
   tbody.replaceChildren();
@@ -1682,7 +1784,7 @@ function openCustomerStatement(accountId) {
     const row = document.createElement('tr');
     const numberCell = document.createElement('td');
     numberCell.className = 'statement-number';
-    numberCell.textContent = (index + 1).toLocaleString('ar-SA');
+    numberCell.textContent = (index + 1).toLocaleString('en-US');
     const dateCell = document.createElement('td');
     dateCell.textContent = formatCustomerStatementDate(item.date);
     const descriptionCell = document.createElement('td');
@@ -1728,7 +1830,7 @@ function formatCustomerStatementDate(value) {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(value)
     ? new Date(`${value}T12:00:00`)
     : new Date(value);
-  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString('ar-SA');
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString('en-US');
 }
 
 function closeCustomerStatement() {
@@ -1780,7 +1882,7 @@ function toggleAccountHistory(account, row) {
     const date = document.createElement('time');
     date.className = 'text-[11px] text-slate-500';
     const parsedDate = new Date(transaction.date);
-    date.textContent = Number.isNaN(parsedDate.getTime()) ? '-' : parsedDate.toLocaleString('ar-SA');
+    date.textContent = Number.isNaN(parsedDate.getTime()) ? '-' : parsedDate.toLocaleString('en-US');
     date.dateTime = transaction.date;
     const deleteButton = document.createElement('button');
     deleteButton.type = 'button';
@@ -1859,7 +1961,9 @@ function updateStats() {
   if (lbl) lbl.textContent = currentMonthName;
 
   // إجمالي نقلات الشهر الحالي
-  const currentMonthTrips = state.trips.filter(t => t.date && t.date.startsWith(currentMonthStr));
+  const currentMonthTrips = state.trips.filter(t =>
+    t.type !== 'payment' && t.date && t.date.startsWith(currentMonthStr)
+  );
   const monthlyClientTripCounts = new Map(state.clients.map(client => [client, 0]));
   currentMonthTrips.forEach(trip => {
     if (monthlyClientTripCounts.has(trip.client)) {
@@ -1904,17 +2008,17 @@ function updateStats() {
 
   // شارة العدد في التبويب
   const badgeCount = document.getElementById('records-badge-count');
-  if (badgeCount) badgeCount.textContent = `${state.trips.length}`;
+  if (badgeCount) badgeCount.textContent = `${state.trips.length + state.payments.length}`;
 }
 
 function getFilteredTrips() {
-  return state.trips.filter(trip => {
+  return getTimelineRecords().filter(trip => {
     // فلتر العميل
     if (state.filters.client && trip.client !== state.filters.client) {
       return false;
     }
     // فلتر المادة
-    if (state.filters.material && trip.material !== state.filters.material) {
+    if (state.filters.material && (trip.type === 'payment' || trip.material !== state.filters.material)) {
       return false;
     }
     // فلتر الشهر
@@ -1925,15 +2029,34 @@ function getFilteredTrips() {
     if (state.filters.search) {
       const q = state.filters.search.toLowerCase();
       const matchClient = (trip.client || '').toLowerCase().includes(q);
-      const matchMaterial = (trip.material || '').toLowerCase().includes(q);
+      const matchMaterial = (trip.type === 'payment' ? 'دفعة نقدية سند قبض' : trip.material || '').toLowerCase().includes(q);
       const matchTruck = (trip.truck || '').toLowerCase().includes(q);
-      const matchNotes = (trip.notes || '').toLowerCase().includes(q);
+      const matchNotes = (trip.type === 'payment' ? trip.note : trip.notes || '').toLowerCase().includes(q);
       if (!matchClient && !matchMaterial && !matchTruck && !matchNotes) {
         return false;
       }
     }
     return true;
   });
+}
+
+function getTimelineRecords() {
+  return [...state.trips.filter(trip => trip.type !== 'payment'), ...state.payments]
+    .sort((first, second) => {
+      const dateOrder = String(first.date || '').localeCompare(String(second.date || ''));
+      if (dateOrder !== 0) return dateOrder;
+      const firstTimestamp = getRecordTimestamp(first.id);
+      const secondTimestamp = getRecordTimestamp(second.id);
+      if (firstTimestamp !== null && secondTimestamp !== null && firstTimestamp !== secondTimestamp) {
+        return firstTimestamp - secondTimestamp;
+      }
+      return String(first.id || '').localeCompare(String(second.id || ''), 'en', { numeric: true });
+    });
+}
+
+function getRecordTimestamp(id) {
+  const match = String(id || '').match(/(?:^|_)(\d{10,})(?:_|$)/);
+  return match ? Number(match[1]) : null;
 }
 
 function renderTripsTable() {
@@ -1947,10 +2070,36 @@ function renderTripsTable() {
   const filtered = getFilteredTrips();
 
   shownCount.textContent = filtered.length;
-  shownLoads.textContent = formatQuantityByUnit(filtered);
-  const totalAmount = filtered.reduce((acc, t) => acc + (t.total !== undefined ? t.total : ((t.count || 1) * (t.price || 0))), 0);
+  shownLoads.textContent = formatQuantityByUnit(filtered.filter(item => item.type !== 'payment'));
+  const balanceClient = state.filters.client;
+  const balanceClientLabel = document.getElementById('balance-summary-client');
+  if (balanceClientLabel) balanceClientLabel.textContent = balanceClient || 'جميع العملاء';
+  const ledgerTotals = getTimelineRecords()
+    .filter(record => !balanceClient || record.client === balanceClient)
+    .reduce((totals, record) => {
+      if (record.type === 'payment') {
+        totals.payments += record.amount;
+        totals.runningBalance -= record.amount;
+      } else {
+        const amount = Number(record.total ?? ((record.count || 1) * (record.price || 0)));
+        totals.deliveries += amount;
+        totals.runningBalance += amount;
+      }
+      return totals;
+    }, { deliveries: 0, payments: 0, runningBalance: 0 });
+  const { deliveries: deliveriesTotal, payments: paymentsTotal, runningBalance } = ledgerTotals;
   const shownTotalEl = document.getElementById('shown-trips-total');
-  if (shownTotalEl) shownTotalEl.textContent = totalAmount.toLocaleString('ar-SA');
+  if (shownTotalEl) shownTotalEl.textContent = formatMoney(deliveriesTotal);
+  const shownPaymentsTotal = document.getElementById('shown-payments-total');
+  const shownBalanceTotal = document.getElementById('shown-balance-total');
+  if (shownPaymentsTotal) shownPaymentsTotal.textContent = formatMoney(paymentsTotal);
+  if (shownBalanceTotal) {
+    shownBalanceTotal.textContent = formatMoney(runningBalance);
+    shownBalanceTotal.classList.toggle('text-rose-700', runningBalance > 0);
+    shownBalanceTotal.classList.toggle('text-amber-700', runningBalance < 0);
+    shownBalanceTotal.classList.toggle('text-emerald-700', runningBalance === 0);
+    shownBalanceTotal.classList.remove('text-slate-900');
+  }
 
   if (filtered.length === 0) {
     tbody.innerHTML = '';
@@ -1963,6 +2112,33 @@ function renderTripsTable() {
 
   filtered.forEach((trip, index) => {
     const tr = document.createElement('tr');
+    if (trip.type === 'payment') {
+      tr.className = 'hover:bg-emerald-100 transition border-b border-emerald-100 bg-emerald-50/70';
+      tr.innerHTML = `
+        <td class="py-3 px-4 text-center font-bold text-emerald-700 text-xs">${index + 1}</td>
+        <td class="py-3 px-4 font-mono text-slate-700 whitespace-nowrap text-xs font-semibold">${escapeHtml(String(trip.date || '—'))}</td>
+        <td class="py-3 px-4 font-bold text-slate-900">${escapeHtml(trip.client)}</td>
+        <td class="py-3 px-4">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+            <i class="fa-solid fa-money-bill-wave text-[10px]"></i>
+            دفعة نقدية (سند قبض)
+          </span>
+        </td>
+        <td class="py-3 px-4 text-center text-slate-400">—</td>
+        <td class="py-3 px-4 text-center text-slate-400">—</td>
+        <td class="py-3 px-4 text-center text-slate-400">—</td>
+        <td class="py-3 px-4 text-center font-black text-emerald-700 font-mono whitespace-nowrap text-xs">−${formatMoney(trip.amount)} <span class="text-[10px]">ر.س</span></td>
+        <td class="py-3 px-4 text-xs text-slate-600 max-w-xs truncate" title="${escapeHtml(trip.note || '')}">${escapeHtml(trip.note || '-')}</td>
+        <td class="py-3 px-4 text-center whitespace-nowrap action-buttons">
+          <button type="button" class="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition" title="حذف الدفعة" data-trip-action="delete-payment" data-trip-id="${escapeHtml(trip.id)}">
+            <i class="fa-solid fa-trash-can text-xs"></i>
+          </button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+      return;
+    }
+
     tr.className = 'hover:bg-slate-50 transition border-b border-slate-100';
 
     const matInfo = state.materials.find(m => m.name === trip.material) || { badgeClass: 'badge-other', icon: 'fa-truck', defaultPrice: 0 };
@@ -1991,10 +2167,10 @@ function renderTripsTable() {
         ${trip.count || 1} <span class="text-[10px] text-slate-400">${escapeHtml(trip.unit || 'رد')}</span>
       </td>
       <td class="py-3 px-4 text-center font-bold text-slate-700 font-mono whitespace-nowrap text-xs">
-        ${tripPrice.toLocaleString('ar-SA')} <span class="text-[10px] text-slate-400">ر.س</span>
+        ${tripPrice.toLocaleString('en-US')} <span class="text-[10px] text-slate-400">ر.س</span>
       </td>
       <td class="py-3 px-4 text-center font-black text-emerald-700 font-mono whitespace-nowrap text-xs">
-        ${tripTotal.toLocaleString('ar-SA')} <span class="text-[10px] text-emerald-600">ر.س</span>
+        ${tripTotal.toLocaleString('en-US')} <span class="text-[10px] text-emerald-600">ر.س</span>
       </td>
       <td class="py-3 px-4 text-xs text-slate-600 max-w-xs truncate" title="${escapeHtml(trip.notes || '')}">
         ${escapeHtml(trip.notes || '-')}
@@ -2078,6 +2254,7 @@ function renderStatementView() {
 
   // تصفية النقلات التابعة لهذا العميل في هذا الشهر
   const tripsForStmt = state.trips.filter(t => {
+    if (t.type === 'payment') return false;
     const matchClient = t.client === targetClient;
     const matchMonth = targetMonth ? (t.date && t.date.startsWith(targetMonth)) : true;
     return matchClient && matchMonth;
@@ -2103,7 +2280,7 @@ function renderStatementView() {
 
   document.getElementById('stmt-total-trips-count').textContent = formatQuantityByUnit(tripsForStmt);
   const stmtTotalAmountEl = document.getElementById('stmt-total-amount');
-  if (stmtTotalAmountEl) stmtTotalAmountEl.textContent = `${totalAmount.toLocaleString('ar-SA')} ر.س`;
+  if (stmtTotalAmountEl) stmtTotalAmountEl.textContent = `${totalAmount.toLocaleString('en-US')} ر.س`;
 
   // تجميع الإحصائية حسب نوع المادة / الخدمة مع المبالغ
   const breakdown = new Map();
@@ -2140,8 +2317,8 @@ function renderStatementView() {
         <td class="p-2 border border-slate-200 text-center font-bold text-slate-500">${idx + 1}</td>
         <td class="p-2 border border-slate-200 font-bold text-slate-800">${escapeHtml(data.material)}</td>
         <td class="p-2 border border-slate-200 text-center font-black text-brand-700">${data.count} ${escapeHtml(data.unit)}</td>
-        <td class="p-2 border border-slate-200 text-center font-mono font-bold text-slate-700">${unitPrice.toLocaleString('ar-SA')} ر.س</td>
-        <td class="p-2 border border-slate-200 text-center font-mono font-black text-emerald-700">${data.totalAmount.toLocaleString('ar-SA')} ر.س</td>
+        <td class="p-2 border border-slate-200 text-center font-mono font-bold text-slate-700">${unitPrice.toLocaleString('en-US')} ر.س</td>
+        <td class="p-2 border border-slate-200 text-center font-mono font-black text-emerald-700">${data.totalAmount.toLocaleString('en-US')} ر.س</td>
         <td class="p-2 border border-slate-200 text-slate-600 font-mono text-center">${percentage}%</td>
       `;
       summaryTbody.appendChild(row);
@@ -2154,7 +2331,7 @@ function renderStatementView() {
       <td colspan="2" class="p-2 border border-slate-300 text-center">الإجمالي الكلي</td>
       <td class="p-2 border border-slate-300 text-center text-brand-800 text-sm font-black">${escapeHtml(formatQuantityByUnit(tripsForStmt))}</td>
       <td class="p-2 border border-slate-300 text-center font-bold text-slate-500">-</td>
-      <td class="p-2 border border-slate-300 text-center text-emerald-800 text-sm font-black font-mono">${totalAmount.toLocaleString('ar-SA')} ر.س</td>
+      <td class="p-2 border border-slate-300 text-center text-emerald-800 text-sm font-black font-mono">${totalAmount.toLocaleString('en-US')} ر.س</td>
       <td class="p-2 border border-slate-300 text-center">${totalAmount > 0 ? '100%' : '0%'}</td>
     `;
     summaryTbody.appendChild(totalRow);
@@ -2179,8 +2356,8 @@ function renderStatementView() {
         <td class="p-2 border border-slate-200 font-bold text-slate-800">${escapeHtml(trip.material)}</td>
         <td class="p-2 border border-slate-200 font-mono text-slate-700">${escapeHtml(trip.truck || '-')}</td>
         <td class="p-2 border border-slate-200 text-center font-black text-brand-700">${trip.count || 1} ${escapeHtml(trip.unit || 'رد')}</td>
-        <td class="p-2 border border-slate-200 text-center font-mono font-bold text-slate-700">${tripPrice.toLocaleString('ar-SA')} ر.س</td>
-        <td class="p-2 border border-slate-200 text-center font-mono font-black text-emerald-700">${tripTotal.toLocaleString('ar-SA')} ر.س</td>
+        <td class="p-2 border border-slate-200 text-center font-mono font-bold text-slate-700">${tripPrice.toLocaleString('en-US')} ر.س</td>
+        <td class="p-2 border border-slate-200 text-center font-mono font-black text-emerald-700">${tripTotal.toLocaleString('en-US')} ر.س</td>
         <td class="p-2 border border-slate-200 text-slate-600">${escapeHtml(trip.notes || '-')}</td>
       `;
       detailsTbody.appendChild(row);
@@ -2191,12 +2368,13 @@ function renderStatementView() {
 function formatQuantityByUnit(trips) {
   const totals = new Map();
   trips.forEach(trip => {
+    if (trip.type === 'payment') return;
     const unit = trip.unit || 'رد';
     totals.set(unit, (totals.get(unit) || 0) + (trip.count || 1));
   });
   if (!totals.size) return '0 رد';
   return [...totals.entries()]
-    .map(([unit, count]) => `${count.toLocaleString('ar-SA')} ${unit}`)
+    .map(([unit, count]) => `${count.toLocaleString('en-US')} ${unit}`)
     .join(' · ');
 }
 
@@ -2309,6 +2487,26 @@ function deleteTrip(id) {
   showToast('تم حذف النقلة من السجل', 'info');
 }
 
+function deletePayment(id) {
+  const payment = state.payments.find(item => item.id === id);
+  if (!payment) return;
+
+  if (!confirm(`هل أنت متأكد من حذف دفعة ${formatMoney(payment.amount)} ر.س للعميل "${payment.client}"؟`)) {
+    return;
+  }
+
+  const updatedPayments = state.payments.filter(item => item.id !== id);
+  try {
+    savePayments(updatedPayments);
+  } catch (error) {
+    console.error('تعذر حفظ حذف الدفعة النقدية:', error);
+    return;
+  }
+  state.payments = updatedPayments;
+  renderDashboard();
+  showToast('تم حذف الدفعة النقدية من السجل.', 'info');
+}
+
 window.openEditModal = function(id) {
   const trip = state.trips.find(t => t.id === id);
   if (!trip) return;
@@ -2341,7 +2539,7 @@ function updateEditModalTotal() {
   const count = parseFloat(countEl.value) || 0;
   const price = parseFloat(priceEl.value) || 0;
   const total = count * price;
-  displayEl.textContent = `${Number.isInteger(total) ? total.toLocaleString('ar-SA') : total.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س`;
+  displayEl.textContent = `${Number.isInteger(total) ? total.toLocaleString('en-US') : total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س`;
 }
 
 function closeEditModal() {
@@ -2397,26 +2595,38 @@ function handleUpdateTrip(e) {
 }
 
 function handleClearAll() {
-  if (state.trips.length === 0) {
+  if (state.trips.length === 0 && state.payments.length === 0) {
     showToast('السجل فارغ بالفعل!', 'warning');
     return;
   }
 
-  if (!confirm(`سيتم حذف جميع النقلات المسجلة (${state.trips.length} نقلة) نهائياً. هل تريد المتابعة؟`)) {
+  const recordCount = state.trips.length + state.payments.length;
+  if (!confirm(`سيتم حذف جميع الحركات المسجلة (${recordCount} حركة) نهائياً. هل تريد المتابعة؟`)) {
     return;
   }
 
+  let tripsCleared = false;
   try {
     saveTrips([]);
+    tripsCleared = true;
+    savePayments([]);
   } catch (error) {
-    console.error('تعذر حفظ تفريغ سجل النقلات:', error);
+    console.error('تعذر حفظ تفريغ سجل الحركات:', error);
+    if (tripsCleared) {
+      try {
+        saveTrips(state.trips);
+      } catch (rollbackError) {
+        console.error('تعذر التراجع عن تفريغ النقلات بعد فشل تفريغ الدفعات:', rollbackError);
+      }
+    }
     return;
   }
 
   state.trips = [];
+  state.payments = [];
   renderDashboard();
   renderStatementView();
-  showToast('تم تفريغ سجل النقلات بالكامل', 'info');
+  showToast('تم تفريغ سجل الحركات بالكامل', 'info');
 }
 
 /* =========================================================
@@ -2470,6 +2680,7 @@ function handleBackup() {
     version: '1.0',
     exportDate: new Date().toISOString(),
     trips: state.trips,
+    payments: state.payments,
     clients: state.clients,
     materials: state.materials,
     trucks: state.trucks,
@@ -2515,7 +2726,8 @@ function handleRestore(e) {
       return;
     }
 
-    if (!confirm(`تم العثور على ${data.trips.length} نقلة في الملف.\nهل ترغب في استبدال البيانات الحالية بالبيانات المستوردة؟`)) return;
+    const importedPaymentCount = Array.isArray(data.payments) ? data.payments.length : 0;
+    if (!confirm(`تم العثور على ${data.trips.length} نقلة و${importedPaymentCount} دفعة في الملف.\nهل ترغب في استبدال البيانات الحالية بالبيانات المستوردة؟`)) return;
 
     const importedMaterials = Array.isArray(data.materials)
       ? normalizeMaterials(data.materials)
@@ -2525,6 +2737,7 @@ function handleRestore(e) {
       ? normalizeClientCatalogs(data.clientCatalogs)
       : {};
     const restoredTrips = normalizeTrips(data.trips, restoredMaterials, restoredClientCatalogs);
+    const restoredPayments = normalizePayments(Array.isArray(data.payments) ? data.payments : []);
     const restoredAccounts = Array.isArray(data.accounts)
       ? normalizeAccounts(data.accounts)
       : state.accounts;
@@ -2533,6 +2746,9 @@ function handleRestore(e) {
       : [...state.clients];
     restoredAccounts.forEach(account => {
       if (!restoredClients.includes(account.client)) restoredClients.push(account.client);
+    });
+    restoredPayments.forEach(payment => {
+      if (!restoredClients.includes(payment.client)) restoredClients.push(payment.client);
     });
     const restoredTrucks = Array.isArray(data.trucks)
       ? data.trucks.filter(truck => typeof truck === 'string' && truck.trim()).map(truck => truck.trim())
@@ -2543,7 +2759,8 @@ function handleRestore(e) {
       STORAGE_KEYS.MATERIALS,
       STORAGE_KEYS.TRUCKS,
       STORAGE_KEYS.ACCOUNTS,
-      STORAGE_KEYS.CLIENT_CATALOGS
+      STORAGE_KEYS.CLIENT_CATALOGS,
+      STORAGE_KEYS.PAYMENTS
     ];
     const previousValues = new Map();
     try {
@@ -2562,7 +2779,8 @@ function handleRestore(e) {
       [STORAGE_KEYS.MATERIALS, restoredMaterials],
       [STORAGE_KEYS.TRUCKS, restoredTrucks],
       [STORAGE_KEYS.ACCOUNTS, restoredAccounts],
-      [STORAGE_KEYS.CLIENT_CATALOGS, restoredClientCatalogs]
+      [STORAGE_KEYS.CLIENT_CATALOGS, restoredClientCatalogs],
+      [STORAGE_KEYS.PAYMENTS, restoredPayments]
     ];
     const savedKeys = [];
 
@@ -2590,6 +2808,7 @@ function handleRestore(e) {
     }
 
     state.trips = restoredTrips;
+    state.payments = restoredPayments;
     state.clients = restoredClients;
     state.materials = restoredMaterials;
     state.trucks = restoredTrucks;

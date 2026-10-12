@@ -393,7 +393,7 @@ export function readFileAsText(file, maxBytes = 50 * 1024 * 1024) {
  * @property {Array<{ label: string, value: string, tone?: 'due'|'credit'|'settled'|'neutral' }>} [summary]
  * @property {PrintSection[]} sections
  * @property {string} [notes]
- * @property {boolean} [signatures]
+ * @property {boolean|string[]} [signatures] `true` for the default accountant/customer lines, or custom labels.
  */
 
 const PRINT_CSS = `
@@ -455,18 +455,27 @@ ${report.meta?.length ? `<section class="meta">${report.meta.map(item => `<div><
 ${report.summary?.length ? `<section class="summary">${report.summary.map(item => `<div class="tone-${item.tone || 'neutral'}"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.value)}</strong></div>`).join('')}</section>` : ''}
 ${report.sections.map(section).join('')}
 ${report.notes ? `<p class="notes">${escapeHtml(report.notes)}</p>` : ''}
-${report.signatures ? '<div class="signatures"><div>توقيع المحاسب</div><div>توقيع العميل / المستلم</div></div>' : ''}
+${report.signatures ? `<div class="signatures">${(Array.isArray(report.signatures) ? report.signatures : ['توقيع المحاسب', 'توقيع العميل / المستلم']).map(label => `<div>${escapeHtml(label)}</div>`).join('')}</div>` : ''}
 <footer class="doc">صدر بتاريخ ${escapeHtml(formatDateTime(new Date()))}${company.name ? ` — ${escapeHtml(company.name)}` : ''}</footer>
 </body></html>`;
 }
 
 /**
  * Opens the browser print dialog for a report (choose "Save as PDF" to export).
- * Uses an isolated hidden iframe so the app's own styles and state are untouched.
  * @param {PrintReport} report
  * @returns {Promise<void>}
  */
 export function printReport(report) {
+  return printHtml(buildPrintableHtml(report));
+}
+
+/**
+ * Prints a standalone HTML document (all dynamic text must already be escaped).
+ * Uses an isolated hidden iframe so the app's own styles and state are untouched.
+ * @param {string} html
+ * @returns {Promise<void>}
+ */
+export function printHtml(html) {
   return new Promise((resolve, reject) => {
     const frame = document.createElement('iframe');
     frame.setAttribute('aria-hidden', 'true');
@@ -487,7 +496,7 @@ export function printReport(report) {
         reject(error);
       }
     };
-    frame.srcdoc = buildPrintableHtml(report);
+    frame.srcdoc = html;
     document.body.appendChild(frame);
   });
 }

@@ -27,10 +27,11 @@ function toastRegion() {
  * Shows a transient notification.
  * @param {string} message
  * @param {'success'|'error'|'warning'|'info'} [type='success']
- * @param {{ duration?: number }} [options] duration in ms; errors stay longer by default.
+ * @param {{ duration?: number, action?: { label: string, onClick: () => void } }} [options]
+ *   duration in ms (errors stay longer by default); `action` adds a button to the toast.
  * @returns {() => void} Function that dismisses the toast early.
  */
-export function toast(message, type = 'success', { duration } = {}) {
+export function toast(message, type = 'success', { duration, action } = {}) {
   const region = toastRegion();
   const ttl = duration ?? (type === 'error' ? 6000 : 3800);
   const dismiss = () => {
@@ -44,6 +45,7 @@ export function toast(message, type = 'success', { duration } = {}) {
   },
     icon(TOAST_ICONS[type] || 'info', { size: 20 }),
     h('span', { class: 'toast-text' }, message),
+    action ? h('button', { type: 'button', class: 'btn btn-primary btn-sm toast-action', on: { click: () => { dismiss(); action.onClick(); } } }, action.label) : null,
     h('button', { type: 'button', class: 'toast-close', ariaLabel: 'إغلاق الإشعار', on: { click: dismiss } }, icon('close', { size: 16 }))
   );
   while (region.children.length >= TOAST_LIMIT) region.firstElementChild.remove();

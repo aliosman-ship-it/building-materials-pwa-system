@@ -122,17 +122,6 @@ export function h(tag, props = {}, ...children) {
 }
 
 /**
- * Builds a DocumentFragment from children.
- * @param {...unknown} children
- * @returns {DocumentFragment}
- */
-export function fragment(...children) {
-  const frag = document.createDocumentFragment();
-  appendChildren(frag, children);
-  return frag;
-}
-
-/**
  * Replaces all children of an element.
  * @param {Element} el
  * @param {...unknown} children
@@ -151,14 +140,6 @@ export function render(el, ...children) {
  * @returns {HTMLElement|null}
  */
 export const qs = (selector, root = document) => root.querySelector(selector);
-
-/**
- * querySelectorAll shortcut returning an array.
- * @param {string} selector
- * @param {ParentNode} [root=document]
- * @returns {HTMLElement[]}
- */
-export const qsa = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 /**
  * Event delegation: invokes `handler(event, matchedElement)` for events whose target

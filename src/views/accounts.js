@@ -231,7 +231,7 @@ export default class AccountsView extends View {
     const build = () => {
       const totals = accountTotals(account);
       const typeSelect = select({ name: 'type', value: ACCOUNT_TX.DEBT, options: [{ value: ACCOUNT_TX.DEBT, label: 'دين جديد (مدين)' }, { value: ACCOUNT_TX.PAYMENT, label: 'سداد / دفعة (دائن)' }] });
-      const amountInput = h('input', { class: 'input num', type: 'number', name: 'amount', min: '0.01', step: '0.01', inputMode: 'decimal', required: true, autofocus: true });
+      const amountInput = h('input', { class: 'input num', type: 'text', name: 'amount', min: '0.01', step: '0.01', inputMode: 'decimal', required: true, autofocus: true });
       const preview = h('strong', { class: 'num' }, formatMoney(totals.balance));
       const updatePreview = () => {
         const amount = Number(amountInput.value) || 0;
@@ -382,7 +382,7 @@ export default class AccountsView extends View {
       }));
       const unitInput = /** @type {HTMLInputElement} */ (h('input', { class: 'input', type: 'text', name: 'unit', maxLength: 40, placeholder: 'رد', value: editItem?.unit || '' }));
       const priceInput = /** @type {HTMLInputElement} */ (h('input', {
-        class: 'input num', type: 'number', name: 'defaultPrice', min: '0', step: '0.01', inputMode: 'decimal', required: true,
+        class: 'input num', type: 'text', name: 'defaultPrice', min: '0', step: '0.01', inputMode: 'decimal', required: true,
         value: editItem && editItem.status !== 'hidden' ? String(editItem.defaultPrice) : ''
       }));
       nameInput.addEventListener('change', () => {

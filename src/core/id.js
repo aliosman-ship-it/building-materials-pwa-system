@@ -42,20 +42,6 @@ export function toHex(bytes) {
 }
 
 /**
- * RFC 4122 version 4 UUID.
- * @returns {string}
- */
-export function uuid() {
-  const cryptoApi = globalThis.crypto;
-  if (cryptoApi && typeof cryptoApi.randomUUID === 'function') return cryptoApi.randomUUID();
-  const bytes = randomBytes(16);
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = toHex(bytes);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-/**
  * Generates a sortable, collision-resistant record id.
  * @param {string} [prefix='id'] Short lowercase entity prefix, e.g. "trip".
  * @returns {string} e.g. "trip_1760169600000_9f2c4e1ab07d"

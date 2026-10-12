@@ -191,3 +191,72 @@ describe('IndexedDB storage', () => {
     db.close();
   });
 });
+
+describe('restores respect the period lock', () => {
+  const trip = (id, date, price) => ({ ...createTrip({ client: 'أ', material: 'بحص', date, price }), id });
+  const entry = (id, date) => ({ id, type: 'debt', amount: 100, date, note: '', createdAt: '' });
+
+  /** Current data: one locked and one open trip, plus a manual account with one locked entry. */
+  async function seeded() {
+    const db = await openDb();
+    await db.addClient('أ', { id: 'account_l', client: 'أ', transactions: [entry('tx_locked', '2026-08-10')], createdAt: '', updatedAt: '' });
+    await db.saveTrip(trip('trip_locked', '2026-08-05', 100));
+    await db.saveTrip(trip('trip_open', '2026-10-05', 100));
+    return db;
+  }
+
+  /** Backup file that edits both trips, moves the locked one, and adds new records. */
+  const incoming = () => normalizeDataset({
+    app: 'dad-transport',
+    data: {
+      clients: [{ name: 'ب', createdAt: '' }],
+      trips: [
+        trip('trip_locked', '2026-10-20', 999), // tries to move a locked trip into an open month
+        trip('trip_open', '2026-10-05', 555),
+        trip('trip_new_locked', '2026-07-01', 1),
+        trip('trip_new_open', '2026-10-09', 2)
+      ],
+      accounts: [{ id: 'account_x', client: 'أ', transactions: [entry('tx_old', '2026-08-20'), entry('tx_new', '2026-10-02')], createdAt: '', updatedAt: '' }],
+      settings: [{ key: 'lockedThrough', value: '2026-06' }]
+    }
+  }).dataset;
+
+  test('merge never writes into or out of locked months', async () => {
+    const db = await seeded();
+    const written = await db.mergeDataset(incoming(), { lockedThrough: '2026-09' });
+    const { trips, accounts } = await db.loadAll();
+    const byId = Object.fromEntries(trips.map(item => [item.id, item]));
+    assert.equal(byId.trip_locked.date, '2026-08-05', 'locked trip untouched');
+    assert.equal(byId.trip_locked.price, 100);
+    assert.equal(byId.trip_open.price, 555, 'open trip updated');
+    assert.ok(byId.trip_new_open && !byId.trip_new_locked);
+    assert.deepEqual(accounts[0].transactions.map(tx => tx.id).sort(), ['tx_locked', 'tx_new']);
+    assert.equal(written.lockedSkipped, 3); // moved locked trip, new locked trip, locked account entry
+    db.close();
+  });
+
+  test('merge without a lock behaves as before', async () => {
+    const db = await seeded();
+    const written = await db.mergeDataset(incoming());
+    assert.equal(written.lockedSkipped, 0);
+    assert.equal((await db.trips.get('trip_locked')).price, 999);
+    db.close();
+  });
+
+  test('replace keeps locked months intact and never loosens the lock', async () => {
+    const db = await seeded();
+    await db.setSetting('lockedThrough', '2026-09');
+    const { lockedSkipped } = await db.replaceAll(incoming(), { lockedThrough: '2026-09' });
+    const { trips, accounts, clients } = await db.loadAll();
+    const byId = Object.fromEntries(trips.map(item => [item.id, item]));
+    assert.deepEqual(Object.keys(byId).sort(), ['trip_locked', 'trip_new_open', 'trip_open']);
+    assert.equal(byId.trip_locked.price, 100);
+    assert.equal(byId.trip_open.price, 555);
+    assert.deepEqual(accounts.find(item => item.client === 'أ').transactions.map(tx => tx.id).sort(), ['tx_locked', 'tx_new']);
+    assert.ok(clients.includes('أ'), 'client of the kept locked trip still exists');
+    assert.ok(clients.includes('ب'));
+    assert.equal(await db.getSetting('lockedThrough'), '2026-09', 'the file cannot unlock months');
+    assert.equal(lockedSkipped, 3);
+    db.close();
+  });
+});

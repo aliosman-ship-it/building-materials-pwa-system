@@ -5,7 +5,7 @@
  * auto-migration from the legacy localStorage application.
  */
 
-import { DomainError, PRIVATE_SETTING_KEYS, deepFreeze, normalizeDataset, normalizeSettings } from '../core/domain.js';
+import { DomainError, PRIVATE_SETTING_KEYS, deepFreeze, isPeriodLocked, normalizeDataset, normalizeSettings } from '../core/domain.js';
 import { isPinRecord } from '../core/security.js';
 
 export const DB_NAME = 'dad_transport_db';
@@ -464,19 +464,68 @@ export class Database {
   /**
    * Replaces all business data with a normalized dataset in one atomic transaction.
    * Settings present in the dataset overwrite current values; others are kept.
+   *
+   * Period lock: every current trip, payment and manual-account entry dated in a
+   * locked month (on or before `lockedThrough`) is kept exactly as it is, and the
+   * file's records for those months are skipped. The resulting lock is the later
+   * of the current lock and the file's lock, so a restore can never unlock months.
    * @param {import('../core/domain.js').Dataset} dataset
+   * @param {{ lockedThrough?: string }} [options] the current lock (YYYY-MM or '')
+   * @returns {Promise<{ lockedSkipped: number }>} file records skipped because their month is locked
    */
-  replaceAll(dataset) {
-    return this.run([...DATA_STORES, STORES.settings], 'readwrite', stores => {
+  replaceAll(dataset, { lockedThrough = '' } = {}) {
+    return this.run([...DATA_STORES, STORES.settings], 'readwrite', async stores => {
+      const locked = date => isPeriodLocked(date, lockedThrough);
+      const [trips, payments, accounts] = await Promise.all(['trips', 'payments', 'accounts'].map(name => requestToPromise(stores[name].getAll())));
+      const keptTrips = trips.filter(record => locked(record.date));
+      const keptPayments = payments.filter(record => locked(record.date));
+      const keptTripIds = new Set(keptTrips.map(record => record.id));
+      const keptPaymentIds = new Set(keptPayments.map(record => record.id));
+      /** @type {Map<string, { account: any, entries: any[] }>} locked manual-account entries per client */
+      const keptEntries = new Map();
+      for (const account of accounts) {
+        const entries = account.transactions.filter(tx => locked(tx.date));
+        if (entries.length) keptEntries.set(account.client, { account, entries });
+      }
+      let lockedSkipped = 0;
+
       for (const name of DATA_STORES) stores[name].clear();
       dataset.clients.forEach(record => stores.clients.put(record));
       dataset.materials.forEach(record => stores.materials.put(record));
       dataset.catalogs.forEach(record => stores.catalogs.put(record));
       dataset.trucks.forEach(record => stores.trucks.put(record));
-      dataset.trips.forEach(record => stores.trips.put(record));
-      dataset.payments.forEach(record => stores.payments.put(record));
-      dataset.accounts.forEach(record => stores.accounts.put(record));
-      for (const [key, value] of Object.entries(dataset.settings || {})) stores.settings.put({ key, value });
+      keptTrips.forEach(record => stores.trips.put(record));
+      keptPayments.forEach(record => stores.payments.put(record));
+      for (const record of dataset.trips) {
+        if (locked(record.date) || keptTripIds.has(record.id)) lockedSkipped += 1;
+        else stores.trips.put(record);
+      }
+      for (const record of dataset.payments) {
+        if (locked(record.date) || keptPaymentIds.has(record.id)) lockedSkipped += 1;
+        else stores.payments.put(record);
+      }
+      for (const account of dataset.accounts) {
+        const kept = keptEntries.get(account.client);
+        keptEntries.delete(account.client);
+        const keptIds = new Set((kept?.entries || []).map(tx => tx.id));
+        const incoming = account.transactions.filter(tx => !locked(tx.date) && !keptIds.has(tx.id));
+        lockedSkipped += account.transactions.length - incoming.length;
+        stores.accounts.put({ ...account, transactions: [...(kept?.entries || []), ...incoming] });
+      }
+      // Clients whose locked entries survive but who are absent from the file keep their account.
+      for (const { account, entries } of keptEntries.values()) stores.accounts.put({ ...account, transactions: entries });
+
+      // Every client referenced by a kept record must still exist.
+      const clientNames = new Set(dataset.clients.map(record => record.name));
+      const now = new Date().toISOString();
+      for (const name of [...keptTrips, ...keptPayments].map(record => record.client).concat([...keptEntries.keys()])) {
+        if (!clientNames.has(name)) { clientNames.add(name); stores.clients.put({ name, createdAt: now }); }
+      }
+
+      const settings = { ...(dataset.settings || {}) };
+      if ('lockedThrough' in settings || lockedThrough) settings.lockedThrough = [String(settings.lockedThrough || ''), lockedThrough].sort().at(-1);
+      for (const [key, value] of Object.entries(settings)) stores.settings.put({ key, value });
+      return { lockedSkipped };
     });
   }
 
@@ -484,12 +533,28 @@ export class Database {
    * Merges a dataset into existing data atomically and idempotently:
    * reference data (clients, materials, prices, trucks) is inserted only when absent;
    * trips and payments are upserted by id; accounts are merged per client.
+   *
+   * Period lock: records dated in a locked month are never written, and an
+   * existing record in a locked month is never overwritten (not even by a copy
+   * that moves it to an open month). Skipped records are counted in `lockedSkipped`.
    * @param {import('../core/domain.js').Dataset} dataset
-   * @returns {Promise<Record<string, number>>} Count of records written per store.
+   * @param {{ lockedThrough?: string }} [options] the current lock (YYYY-MM or '')
+   * @returns {Promise<Record<string, number>>} Count of records written per store, plus `lockedSkipped`.
    */
-  mergeDataset(dataset) {
+  mergeDataset(dataset, { lockedThrough = '' } = {}) {
     return this.run([...DATA_STORES], 'readwrite', async stores => {
-      const written = { clients: 0, materials: 0, catalogs: 0, trucks: 0, trips: 0, payments: 0, accounts: 0 };
+      const locked = date => isPeriodLocked(date, lockedThrough);
+      const written = { clients: 0, materials: 0, catalogs: 0, trucks: 0, trips: 0, payments: 0, accounts: 0, lockedSkipped: 0 };
+      /** Upserts a trip/payment unless the new or the stored copy is in a locked month. */
+      const upsertOpen = async (storeName, record) => {
+        const existing = lockedThrough ? await requestToPromise(stores[storeName].get(record.id)) : undefined;
+        if (locked(record.date) || (existing && locked(existing.date))) {
+          written.lockedSkipped += 1;
+          return;
+        }
+        stores[storeName].put(record);
+        written[storeName] += 1;
+      };
       const insertIfAbsent = async (storeName, record, key) => {
         const existing = await requestToPromise(stores[storeName].getKey(key));
         if (existing === undefined) {
@@ -501,15 +566,17 @@ export class Database {
       for (const record of dataset.materials) await insertIfAbsent('materials', record, record.name);
       for (const record of dataset.catalogs) await insertIfAbsent('catalogs', record, [record.client, record.name]);
       for (const record of dataset.trucks) await insertIfAbsent('trucks', record, record.plate);
-      for (const record of dataset.trips) { stores.trips.put(record); written.trips += 1; }
-      for (const record of dataset.payments) { stores.payments.put(record); written.payments += 1; }
+      for (const record of dataset.trips) await upsertOpen('trips', record);
+      for (const record of dataset.payments) await upsertOpen('payments', record);
       for (const account of dataset.accounts) {
+        const open = account.transactions.filter(tx => !locked(tx.date));
+        written.lockedSkipped += account.transactions.length - open.length;
         const existing = await requestToPromise(stores.accounts.index('client').get(account.client));
         if (!existing) {
-          stores.accounts.put(account);
+          stores.accounts.put({ ...account, transactions: open });
         } else {
           const known = new Set(existing.transactions.map(tx => tx.id));
-          const extra = account.transactions.filter(tx => !known.has(tx.id));
+          const extra = open.filter(tx => !known.has(tx.id));
           if (!extra.length) continue;
           stores.accounts.put({ ...existing, transactions: [...existing.transactions, ...extra], updatedAt: new Date().toISOString() });
         }
@@ -619,10 +686,11 @@ export function readLegacySnapshot(storage = safeLocalStorage()) {
 }
 
 /**
- * localStorage accessor that tolerates browsers where access throws.
+ * localStorage accessor that tolerates browsers where access throws
+ * (privacy modes, blocked site data). Shared by every localStorage user.
  * @returns {Storage|null}
  */
-function safeLocalStorage() {
+export function safeLocalStorage() {
   try {
     return globalThis.localStorage ?? null;
   } catch {
@@ -655,7 +723,8 @@ export async function migrateFromLegacy(database, { force = false, storage } = {
   if (!snapshot.found && !isPinRecord(snapshot.pin)) return { status: 'none', unreadable: snapshot.errors };
 
   const { dataset, report } = normalizeDataset(snapshot.data);
-  const written = await database.mergeDataset(dataset);
+  // Legacy records never override months the user has already locked.
+  const written = await database.mergeDataset(dataset, { lockedThrough: await database.getSetting('lockedThrough', '') });
 
   const settings = {};
   let pinMigrated = false;

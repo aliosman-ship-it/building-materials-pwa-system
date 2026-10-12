@@ -41,6 +41,8 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 /* ───────────── static server with an on/off switch to simulate going offline ───────────── */
 
 let online = true;
+/** When true, sw.js is served with a different CACHE_VERSION to simulate a new release. */
+let nextRelease = false;
 const sockets = new Set();
 const server = http.createServer((req, res) => {
   if (!online) { req.socket.destroy(); return; }
@@ -50,7 +52,8 @@ const server = http.createServer((req, res) => {
     if (statSync(file).isDirectory()) file = join(file, 'index.html');
     if (!file.startsWith(ROOT) || /[/\\](tests|legacy-backup|\.git)([/\\]|$)/.test(file.slice(ROOT.length))) throw new Error('forbidden');
     res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
-    res.end(readFileSync(file));
+    const body = readFileSync(file);
+    res.end(nextRelease && file.endsWith('sw.js') ? body.toString('utf8').replace(/const CACHE_VERSION = '[^']+'/, "const CACHE_VERSION = 'e2e-next'") : body);
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/plain' }).end('not found');
   }
@@ -437,16 +440,132 @@ await step('sidebar collapses to an icon rail and main expands', async () => {
   assert.ok((await measure()).sidebar > 200);
 });
 
+await step('daily work sheet: live totals, save, carry-forward, guard and history', async () => {
+  await page.setViewport({ width: 1280, height: 900 });
+  await go('#/daily');
+  assert.equal(await page.$eval('.nav-link[data-route="/daily"]', el => el.getAttribute('aria-current')), 'page');
+  assert.equal(await page.$eval('.daily-view .card-header .badge', el => el.textContent), 'يومية جديدة');
+  await setValue('#daily-form [name="daySales"]', '1000');
+  await setValue('#daily-form [name="nightSales"]', '٥٠٠'); // Arabic-Indic digits are accepted
+  await setValue('#daily-form [name="purchases.0.type"]', 'خضار');
+  await setValue('#daily-form [name="purchases.0.name"]', 'طماطم');
+  await setValue('#daily-form [name="purchases.0.count"]', '3');
+  await setValue('#daily-form [name="purchases.0.amount"]', '300');
+  await page.keyboard.press('Enter'); // jumps to the next line like a paper form
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('name')), 'purchases.1.type');
+  await setValue('#daily-form [name="expenses.0.type"]', 'كهرباء');
+  await setValue('#daily-form [name="expenses.0.amount"]', '120.5');
+  await setValue('#daily-form [name="openingCash"]', '200');
+  await setValue('#daily-form [name="withdrawals"]', '100');
+  const summary = () => page.$eval('.daily-summary', el => el.textContent);
+  assert.match(await summary(), /1,500/);
+  assert.match(await summary(), /1,079\.50/);
+  assert.match(await page.$eval('.closing-box', el => el.textContent), /1,179\.50/);
+  assert.match(await page.$eval('.daily-view .card-header .badge', el => el.textContent), /لم تُحفظ/);
+
+  await page.keyboard.down('Control'); await page.keyboard.press('s'); await page.keyboard.up('Control');
+  await waitToast(/تم حفظ يومية/);
+  await page.waitForFunction(() => document.querySelector('.daily-view .card-header .badge')?.textContent === 'محفوظة');
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('dad_daily_operations_v1')));
+  assert.equal(stored.sheets.length, 1);
+  assert.equal(stored.sheets[0].nightSales, 500);
+  assert.equal(stored.sheets[0].purchases.length, 1, 'blank lines are not stored');
+  await page.screenshot({ path: join(SHOTS, 'desktop-daily.png'), fullPage: true });
+
+  // The next day opens blank with yesterday's closing cash carried forward.
+  await clearToasts();
+  await page.click('[data-action="day-step"][data-step="1"]');
+  await page.waitForFunction(() => document.querySelector('.daily-view .card-header .badge')?.textContent === 'يومية جديدة');
+  assert.equal(await value('#daily-form [name="openingCash"]'), '1179.5');
+  assert.match(await page.$eval('.daily-summary .field-hint', el => el.textContent), /مُرحّلة من عهدة نهاية يوم/);
+
+  // Leaving with unsaved changes asks first.
+  await setValue('#daily-form [name="daySales"]', '50');
+  await page.evaluate(() => { location.hash = '#/ledger'; });
+  await page.waitForSelector('dialog.modal-danger');
+  await page.click('dialog.modal-danger .btn-ghost');
+  await page.waitForFunction(() => !document.querySelector('dialog.modal') && location.hash.startsWith('#/daily'));
+  assert.equal(await value('#daily-form [name="daySales"]'), '50', 'typed data survives a cancelled navigation');
+  await page.click('[data-action="day-step"][data-step="-1"]');
+  await page.waitForSelector('dialog.modal-danger');
+  await page.click('dialog.modal-danger .btn-danger');
+  await page.waitForFunction(() => document.querySelector('.daily-view .card-header .badge')?.textContent === 'محفوظة');
+
+  await page.click('[data-tab="history"]');
+  await page.waitForSelector('.daily-table tbody tr');
+  assert.equal((await page.$$('.daily-table tbody tr')).length, 1);
+  assert.match(await page.$eval('.daily-table tfoot', el => el.textContent), /1,179\.50/);
+
+  // The chosen day is spelled out next to the native picker (which may show month/day).
+  await go('#/daily?date=2026-10-12');
+  assert.equal(await value('#daily-form [name="date"]'), '2026-10-12');
+  assert.equal(await page.$eval('.day-label', el => el.textContent), 'الاثنين 12 أكتوبر 2026');
+  assert.match(await page.$eval('.day-hijri', el => el.textContent), /1 جمادى الأولى 1448/);
+  await page.click('[data-action="day-step"][data-step="1"]');
+  await page.waitForFunction(() => document.querySelector('.day-label')?.textContent === 'الثلاثاء 13 أكتوبر 2026');
+  assert.equal(await value('#daily-form [name="date"]'), '2026-10-13');
+  await go('#/daily?date=2026-12-10');
+  assert.equal(await page.$eval('.day-label', el => el.textContent), 'الخميس 10 ديسمبر 2026');
+  await page.screenshot({ path: join(SHOTS, 'daily-date.png'), clip: { x: 0, y: 0, width: 1280, height: 420 } });
+
+  // The paper-style print document escapes user text.
+  const html = await page.evaluate(async () => {
+    const { buildDailySheetHtml } = await import('./src/core/daily-print.js');
+    const { createDailySheet } = await import('./src/core/daily.js');
+    return buildDailySheetHtml(createDailySheet({ date: '2026-10-12', daySales: '10', notes: '<img src=x onerror=alert(1)>' }), { company: { name: 'شركة' } });
+  });
+  assert.match(html, /يومية حركة العمل/);
+  assert.match(html, /الاثنين/);
+  assert.ok(!html.includes('<img'), 'notes are escaped in print');
+});
+
+await step('numeric fields accept Arabic-Indic digits everywhere', async () => {
+  await go('#/ledger');
+  await setValue('#trip-form [name="count"]', '٣');
+  await setValue('#trip-form [name="price"]', '٤٥٠٫٥');
+  assert.equal(await value('#trip-form [name="count"]'), '3');
+  assert.equal(await value('#trip-form [name="price"]'), '450.5');
+  assert.notEqual(await page.$eval('#trip-form .total-preview strong', el => el.textContent.replace(/[^\d]/g, '')), '0', 'total preview uses the converted amount');
+  await page.click('[data-action="reset-form"]');
+  await go('#/settings');
+  await setValue('#calc-gross', '١١٥');
+  assert.equal(await value('#calc-gross'), '115');
+  assert.match(await page.$eval('.calc-value-main', el => el.textContent), /100/);
+});
+
+await step('a new release waits for "تحديث الآن", then reloads once onto one consistent release', async () => {
+  await go('#/dashboard');
+  nextRelease = true;
+  await page.evaluate(() => navigator.serviceWorker.getRegistration().then(registration => registration.update()));
+  await page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration())?.waiting));
+  await page.waitForSelector('.toast .toast-action');
+  // Nothing changes under the user until they choose to update.
+  await page.evaluate(() => { window.__sameSession = true; });
+  await sleep(300);
+  assert.equal(await page.evaluate(() => window.__sameSession), true, 'no automatic reload');
+  const release = (await page.evaluate(() => caches.keys())).filter(name => name.startsWith('ali-othman-transport-'));
+  assert.ok(release.some(name => name !== 'ali-othman-transport-e2e-next'), 'the current release cache still serves this tab');
+  await Promise.all([page.waitForNavigation(), page.click('.toast .toast-action')]);
+  await page.waitForSelector('#app-outlet .page-header');
+  assert.equal(await page.evaluate(() => window.__sameSession), undefined, 'page reloaded');
+  const cacheNames = await page.evaluate(() => caches.keys());
+  assert.deepEqual(cacheNames.filter(name => name.startsWith('ali-othman-transport-')), ['ali-othman-transport-e2e-next'], 'only the new release cache remains');
+});
+
 for (const [width, height] of [[375, 812], [768, 1024], [1024, 768], [1440, 900]]) {
   await step(`no horizontal overflow at ${width}px on every screen`, async () => {
     await page.setViewport({ width, height });
-    for (const route of ['#/dashboard', '#/ledger', '#/accounts', '#/reports', '#/settings']) {
+    for (const route of ['#/dashboard', '#/ledger', '#/accounts', '#/reports', '#/daily', '#/settings']) {
       await go(route);
       await sleep(50);
       const overflow = await noHorizontalOverflow();
       assert.ok(overflow <= 1, `${route} overflows by ${overflow}px`);
     }
     if (width === 375) await page.screenshot({ path: join(SHOTS, 'mobile-settings.png'), fullPage: true });
+    if (width === 375) {
+      await go('#/daily');
+      await page.screenshot({ path: join(SHOTS, 'mobile-daily.png'), fullPage: true });
+    }
   });
 }
 
@@ -502,11 +621,34 @@ await step('works fully offline after the first visit', async () => {
   for (const socket of sockets) socket.destroy();
   await page.reload();
   await page.waitForSelector('#app-shell:not([hidden])');
+  await go('#/daily?tab=history');
+  assert.equal((await page.$$('.daily-table tbody tr')).length, 1, 'daily sheets are available offline');
   for (const route of ['#/dashboard', '#/accounts', '#/reports', '#/settings', '#/ledger']) await go(route);
   const rows = await page.$$eval('#app-outlet tbody tr', nodes => nodes.map(node => node.textContent).join(' '));
   assert.match(rows, /حجر جبلي/, 'saved trip is still there offline');
   assert.equal(await page.$('#activation-screen'), null, 'activation survives an offline reload');
   online = true;
+});
+
+await step('PIN lock keeps unsaved input and ignores Ctrl+S while locked', async () => {
+  await go('#/settings');
+  await setValue('#pin-form [name="pin"]', '4321');
+  await setValue('#pin-form [name="confirm"]', '4321');
+  await page.click('#pin-form [type="submit"]');
+  await waitToast(/تم تفعيل رمز PIN/);
+  await go('#/daily?date=2026-10-20');
+  await setValue('#daily-form [name="daySales"]', '777');
+  await clearToasts();
+  await page.click('#lock-btn');
+  await page.waitForSelector('#lock-screen:not([hidden])');
+  await page.keyboard.down('Control'); await page.keyboard.press('s'); await page.keyboard.up('Control');
+  await sleep(300);
+  assert.equal(await page.$('.toast'), null, 'no save toast (with cash figures) over the lock screen');
+  assert.ok(!JSON.parse(await page.evaluate(() => localStorage.getItem('dad_daily_operations_v1'))).sheets.some(item => item.date === '2026-10-20'), 'nothing saved while locked');
+  await page.type('#lock-pin', '٤٣٢١'); // Arabic-Indic digits unlock too
+  await page.click('#lock-form [type="submit"]');
+  await page.waitForSelector('#lock-screen', { hidden: true });
+  assert.equal(await value('#daily-form [name="daySales"]'), '777', 'typed value survives lock/unlock');
 });
 
 await step('zero console errors across the session', async () => {

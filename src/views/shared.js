@@ -109,16 +109,6 @@ export function balanceClass(balance) {
 }
 
 /**
- * Money table cell.
- * @param {number} amount
- * @param {{ class?: string, signed?: boolean }} [options]
- * @returns {HTMLTableCellElement}
- */
-export function moneyCell(amount, { class: className, signed = false } = {}) {
-  return /** @type {HTMLTableCellElement} */ (h('td', { class: ['num', className] }, formatMoney(amount, { signed })));
-}
-
-/**
  * Date cell with the Hijri date as a tooltip / secondary line.
  * @param {string} date
  * @param {boolean} [showHijri=true]
@@ -230,7 +220,7 @@ export function openPaymentDialog(ctx, data, { client = '', amount, source = '' 
   const form = h('form', { id: formId, class: 'form-grid', novalidate: true },
     field('العميل', select({ name: 'client', value: client, required: true, placeholder: 'اختر العميل', options: data.clients })),
     field('التاريخ', h('input', { class: 'input', type: 'date', name: 'date', value: todayISO(), required: true })),
-    vatAmountField('المبلغ (ر.س)', /** @type {HTMLInputElement} */ (h('input', { class: 'input num', type: 'number', name: 'amount', min: '0.01', step: '0.01', inputMode: 'decimal', required: true, value: amount ? String(amount) : '', autofocus: true })), vatDeductionRate(ctx.settings), { hint: 'إن كان المبلغ شاملاً الضريبة اضغط "خصم" لحفظ الصافي' }),
+    vatAmountField('المبلغ (ر.س)', /** @type {HTMLInputElement} */ (h('input', { class: 'input num', type: 'text', name: 'amount', min: '0.01', step: '0.01', inputMode: 'decimal', required: true, value: amount ? String(amount) : '', autofocus: true })), vatDeductionRate(ctx.settings), { hint: 'إن كان المبلغ شاملاً الضريبة اضغط "خصم" لحفظ الصافي' }),
     field('ملاحظة / رقم السند', h('input', { class: 'input', type: 'text', name: 'note', maxLength: 500 }), { class: 'span-2' })
   );
   form.addEventListener('submit', async event => {
@@ -276,8 +266,8 @@ export function openTripEditor(ctx, data, trip, { source = '' } = {}) {
   const formId = `trip-edit-${trip.id}`;
   const clientSelect = select({ name: 'client', value: trip.client, required: true, options: data.clients.includes(trip.client) ? data.clients : [trip.client, ...data.clients] });
   const materialSelect = select({ name: 'material', value: trip.material, required: true, options: [] });
-  const countInput = h('input', { class: 'input num', type: 'number', name: 'count', min: '1', step: '1', required: true, value: String(trip.count) });
-  const priceInput = h('input', { class: 'input num', type: 'number', name: 'price', min: '0', step: '0.01', required: true, value: String(trip.price) });
+  const countInput = h('input', { class: 'input num', type: 'text', name: 'count', min: '1', step: '1', inputMode: 'numeric', required: true, value: String(trip.count) });
+  const priceInput = h('input', { class: 'input num', type: 'text', name: 'price', min: '0', step: '0.01', inputMode: 'decimal', required: true, value: String(trip.price) });
   const totalEl = h('strong', { class: 'num' });
   const vatNote = h('small');
 

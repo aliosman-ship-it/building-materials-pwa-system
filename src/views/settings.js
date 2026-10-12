@@ -14,6 +14,7 @@ import { createPinRecord, isPinRecord, isValidPin, verifyPin } from '../core/sec
 import { currentMonthISO, formatBytes, formatDateTime, formatMoney, formatMonthLabel, formatNumber, shiftMonth } from '../core/format.js';
 import { exportJSON, exportName, readFileAsText } from '../core/export.js';
 import { migrateFromLegacy, readLegacySnapshot } from '../js/storage-adapter.js';
+import { DailyStore } from '../js/daily-storage.js';
 import { button, handleFormError, iconButton, pageHeader, vatDeductionRate } from './shared.js';
 import { licensePanel } from './license.js';
 
@@ -92,8 +93,8 @@ export default class SettingsView extends View {
   /** Standalone VAT calculator: VAT-inclusive total → VAT amount + net amount. */
   renderTax() {
     const s = this.ctx.settings;
-    const gross = /** @type {HTMLInputElement} */ (h('input', { class: 'input num', type: 'number', id: 'calc-gross', min: '0', step: '0.01', inputMode: 'decimal', placeholder: '0.00', autocomplete: 'off' }));
-    const rate = /** @type {HTMLInputElement} */ (h('input', { class: 'input num', type: 'number', id: 'calc-rate', value: String(vatDeductionRate(s)), min: '0', max: '100', step: '0.01', inputMode: 'decimal' }));
+    const gross = /** @type {HTMLInputElement} */ (h('input', { class: 'input num', type: 'text', id: 'calc-gross', min: '0', step: '0.01', inputMode: 'decimal', placeholder: '0.00', autocomplete: 'off' }));
+    const rate = /** @type {HTMLInputElement} */ (h('input', { class: 'input num', type: 'text', id: 'calc-rate', value: String(vatDeductionRate(s)), min: '0', max: '100', step: '0.01', inputMode: 'decimal' }));
     const vatOut = h('output', { class: 'calc-value num', attrs: { for: 'calc-gross calc-rate' } }, formatMoney(0));
     const netOut = h('output', { class: 'calc-value calc-value-main num', attrs: { for: 'calc-gross calc-rate' } }, formatMoney(0));
     const check = h('p', { class: 'muted small', ariaLive: 'polite' });
@@ -152,7 +153,7 @@ export default class SettingsView extends View {
         h('summary', {}, 'ضريبة النقلات الجديدة', h('span', { class: ['badge', s.vatEnabled ? 'badge-settled' : 'badge-neutral'] }, s.vatEnabled ? `مفعّلة ${formatNumber(s.vatRate)}%` : 'غير مفعّلة')),
         h('form', { id: 'tax-form', class: 'stack', novalidate: true },
           h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', name: 'vatEnabled', checked: s.vatEnabled }), 'إضافة ضريبة القيمة المضافة تلقائياً على النقلات الجديدة'),
-          field('نسبة الضريبة %', h('input', { class: 'input num', type: 'number', name: 'vatRate', value: String(s.vatRate), min: '0', max: '100', step: '0.01', inputMode: 'decimal' })),
+          field('نسبة الضريبة %', h('input', { class: 'input num', type: 'text', name: 'vatRate', value: String(s.vatRate), min: '0', max: '100', step: '0.01', inputMode: 'decimal' })),
           h('p', { class: 'muted small' }, 'تُحفظ النسبة مع كل نقلة لحظة تسجيلها، لذلك تغييرها لا يعدّل الفواتير والكشوف السابقة.'),
           h('div', {}, button('حفظ', { icon: 'check', variant: 'primary', type: 'submit' }))
         )
@@ -181,7 +182,7 @@ export default class SettingsView extends View {
     const s = this.ctx.settings;
     return this.card('العرض والتذكيرات', 'calendar', h('form', { id: 'display-form', class: 'stack', novalidate: true },
       h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', name: 'showHijri', checked: s.showHijri !== false }), 'إظهار التاريخ الهجري (أم القرى) بجانب الميلادي'),
-      field('تذكير النسخ الاحتياطي كل (يوم) — 0 لإيقافه', h('input', { class: 'input num', type: 'number', name: 'backupReminderDays', value: String(s.backupReminderDays), min: '0', max: '90', step: '1' })),
+      field('تذكير النسخ الاحتياطي كل (يوم) — 0 لإيقافه', h('input', { class: 'input num', type: 'text', inputMode: 'numeric', name: 'backupReminderDays', value: String(s.backupReminderDays), min: '0', max: '90', step: '1' })),
       h('div', {}, button('حفظ', { icon: 'check', variant: 'primary', type: 'submit' }))
     ));
   }
@@ -213,7 +214,7 @@ export default class SettingsView extends View {
         h('input', { type: 'hidden', name: 'original', value: '' }),
         field('اسم المادة', h('input', { class: 'input', name: 'name', required: true, maxLength: 80 }), { class: 'grow' }),
         field('الوحدة', h('input', { class: 'input', name: 'unit', maxLength: 40, placeholder: 'رد' })),
-        field('السعر (ر.س)', h('input', { class: 'input num', type: 'number', name: 'defaultPrice', min: '0', step: '0.01', required: true })),
+        field('السعر (ر.س)', h('input', { class: 'input num', type: 'text', name: 'defaultPrice', min: '0', step: '0.01', inputMode: 'decimal', required: true })),
         h('div', { class: 'field', style: { flex: '0 0 auto' } }, h('span', { class: 'field-label' }, ' '), button('حفظ', { icon: 'check', variant: 'primary', type: 'submit' }))
       ),
       sorted.length
@@ -462,11 +463,29 @@ export default class SettingsView extends View {
     await this.refresh();
   }
 
-  async backup() {
+  /**
+   * Full backup document: the transport database plus the daily work sheets
+   * (stored separately, added under `daily`). A daily read failure never blocks
+   * the main backup.
+   * @returns {Promise<Record<string, unknown>>}
+   */
+  async fullBackup() {
     const backup = await this.ctx.db.exportBackup();
+    try {
+      return { ...backup, daily: new DailyStore().exportBackup() };
+    } catch (error) {
+      console.error('Daily sheets not included in backup:', error);
+      toast(/** @type {any} */ (error)?.userMessage || 'تعذر تضمين يوميات حركة العمل في النسخة الاحتياطية.', 'warning', { duration: 8000 });
+      return backup;
+    }
+  }
+
+  async backup() {
+    const backup = await this.fullBackup();
     exportJSON(exportName('نسخة_احتياطية_نقليات'), backup);
     await this.ctx.db.setSetting('_lastBackupReminder', Date.now());
-    toast('تم تنزيل النسخة الاحتياطية.', 'success');
+    const days = /** @type {any} */ (backup).daily?.sheets?.length || 0;
+    toast(days ? `تم تنزيل النسخة الاحتياطية (تشمل ${formatNumber(days)} يومية لحركة العمل).` : 'تم تنزيل النسخة الاحتياطية.', 'success');
   }
 
   async persist() {
@@ -481,8 +500,9 @@ export default class SettingsView extends View {
     input.value = '';
     if (!file) return;
     let parsed;
+    let raw;
     try {
-      const raw = JSON.parse(await readFileAsText(file));
+      raw = JSON.parse(await readFileAsText(file));
       parsed = normalizeDataset(raw);
     } catch (error) {
       console.error('Restore parse failed:', error);
@@ -491,6 +511,24 @@ export default class SettingsView extends View {
     }
     const { dataset, report } = parsed;
     const dropped = Object.values(report.dropped).reduce((sum, n) => sum + n, 0);
+    const lockedThrough = this.ctx.settings.lockedThrough || '';
+    // Daily work sheets travel in the same file (optional; older backups have none).
+    const dailyStore = new DailyStore();
+    let dailyPreview = null;
+    if (raw?.daily) {
+      try {
+        dailyPreview = dailyStore.previewImport(raw.daily);
+      } catch (error) {
+        toast(`لن تُستعاد يوميات حركة العمل من هذا الملف: ${/** @type {any} */ (error)?.userMessage || 'بيانات غير صالحة'}`, 'warning', { duration: 8000 });
+      }
+    }
+    const restoreDaily = () => {
+      if (!dailyPreview?.sheets.length) return 0;
+      if (dailyPreview.replacing) exportJSON(exportName('نسخة_قبل_استعادة_اليوميات'), dailyStore.exportBackup());
+      return dailyStore.importBackup(raw.daily).imported;
+    };
+    const lockedNote = count => (count ? ` تم تجاهل ${formatNumber(count)} سجل ضمن الفترة المقفلة.` : '');
+    const dailyNote = count => (count ? ` واستُعيدت ${formatNumber(count)} يومية لحركة العمل.` : '');
     const modal = openModal({
       title: 'استعادة نسخة احتياطية',
       icon: 'upload',
@@ -501,19 +539,23 @@ export default class SettingsView extends View {
           h('dt', {}, 'الدفعات'), h('dd', { class: 'num' }, formatNumber(dataset.payments.length)),
           h('dt', {}, 'العملاء'), h('dd', { class: 'num' }, formatNumber(dataset.clients.length)),
           h('dt', {}, 'الحسابات اليدوية'), h('dd', { class: 'num' }, formatNumber(dataset.accounts.length)),
-          h('dt', {}, 'المواد'), h('dd', { class: 'num' }, formatNumber(dataset.materials.length))
+          h('dt', {}, 'المواد'), h('dd', { class: 'num' }, formatNumber(dataset.materials.length)),
+          dailyPreview ? [h('dt', {}, 'يوميات حركة العمل'), h('dd', { class: 'num' }, formatNumber(dailyPreview.sheets.length))] : null
         ),
+        lockedThrough ? h('div', { class: 'callout' }, icon('lock'), h('p', {}, `الفترة مقفلة حتى ${formatMonthLabel(lockedThrough)}: لن يتغير أي سجل في الأشهر المقفلة، وسيتم تجاهل سجلات الملف الخاصة بها.`)) : null,
+        dailyPreview?.replacing ? h('p', { class: 'muted small' }, `${formatNumber(dailyPreview.replacing)} يومية في الملف بتواريخ موجودة حالياً ستحل محلها (يُنزَّل قبلها نسخة من يومياتك الحالية تلقائياً).`) : null,
         dropped ? h('div', { class: 'callout warn' }, icon('alert'), h('p', {}, `سيتم تجاهل ${formatNumber(dropped)} سجل غير صالح.`)) : null,
         report.warnings.length ? h('details', {}, h('summary', {}, `${formatNumber(report.warnings.length)} ملاحظة`), h('ul', { class: 'small' }, report.warnings.slice(0, 50).map(text => h('li', {}, text)))) : null,
-        h('p', { class: 'muted small' }, '"دمج" يضيف السجلات الجديدة ويحدّث الموجودة بنفس المعرّف. "استبدال" يحذف كل البيانات الحالية أولاً — سيتم تنزيل نسخة احتياطية من بياناتك الحالية تلقائياً قبل الاستبدال.')
+        h('p', { class: 'muted small' }, '"دمج" يضيف السجلات الجديدة ويحدّث الموجودة بنفس المعرّف. "استبدال" يحذف كل البيانات الحالية أولاً — سيتم تنزيل نسخة احتياطية من بياناتك الحالية تلقائياً قبل الاستبدال. يوميات حركة العمل تُدمج حسب التاريخ في الحالتين.')
       ),
       actions: [
         { label: 'إلغاء', variant: 'ghost', onClick: () => undefined },
         {
           label: 'دمج', icon: 'layers',
           onClick: async () => {
-            const written = await this.ctx.db.mergeDataset(dataset);
-            toast(`تم الدمج: ${formatNumber(written.trips)} نقلة، ${formatNumber(written.payments)} دفعة.`, 'success');
+            const written = await this.ctx.db.mergeDataset(dataset, { lockedThrough });
+            const days = restoreDaily();
+            toast(`تم الدمج: ${formatNumber(written.trips)} نقلة، ${formatNumber(written.payments)} دفعة.${dailyNote(days)}${lockedNote(written.lockedSkipped)}`, 'success', { duration: 7000 });
             await this.afterImport();
           }
         },
@@ -522,9 +564,10 @@ export default class SettingsView extends View {
           onClick: async () => {
             const confirmed = await confirmDialog({ title: 'تأكيد الاستبدال', message: 'سيتم حذف جميع البيانات الحالية واستبدالها بمحتوى الملف.', confirmText: 'استبدال', danger: true, requireText: 'استبدال' });
             if (!confirmed) return false;
-            exportJSON(exportName('نسخة_قبل_الاستعادة'), await this.ctx.db.exportBackup());
-            await this.ctx.db.replaceAll(dataset);
-            toast('تمت استعادة البيانات بنجاح.', 'success');
+            exportJSON(exportName('نسخة_قبل_الاستعادة'), await this.fullBackup());
+            const { lockedSkipped } = await this.ctx.db.replaceAll(dataset, { lockedThrough });
+            const days = restoreDaily();
+            toast(`تمت استعادة البيانات بنجاح.${dailyNote(days)}${lockedNote(lockedSkipped)}`, 'success', { duration: 7000 });
             await this.afterImport();
             return undefined;
           }

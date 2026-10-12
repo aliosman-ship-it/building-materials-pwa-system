@@ -111,8 +111,8 @@ export default class LedgerView extends View {
     const vatRate = effectiveVatRate(this.ctx.settings);
     const clientSelect = select({ name: 'client', value: form.client, required: true, placeholder: 'اختر العميل', options: data.clients, ariaLabel: 'العميل' });
     const truck = h('input', { class: 'input', type: 'text', name: 'truck', value: form.truck, list: 'truck-list', maxLength: 40, placeholder: 'مثال: 1234 أ ب ج', autocomplete: 'off' });
-    const count = h('input', { class: 'input num', type: 'number', name: 'count', value: form.count, min: '1', step: '1', inputMode: 'numeric', required: true });
-    const price = h('input', { class: 'input num', type: 'number', name: 'price', value: form.price, min: '0', step: '0.01', inputMode: 'decimal', required: true });
+    const count = h('input', { class: 'input num', type: 'text', name: 'count', value: form.count, min: '1', step: '1', inputMode: 'numeric', required: true });
+    const price = h('input', { class: 'input num', type: 'text', name: 'price', value: form.price, min: '0', step: '0.01', inputMode: 'decimal', required: true });
     const materialSelect = h('select', { class: 'input', name: 'material', required: true, ariaLabel: 'المادة / الخدمة' });
     const priceHint = h('small', { class: 'field-hint' });
     const totalValue = h('strong', { class: 'num' }, formatMoney(0));

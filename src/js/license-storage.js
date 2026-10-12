@@ -7,6 +7,7 @@
  */
 
 import { LICENSE_STORAGE_KEYS } from '../core/license.js';
+import { safeLocalStorage } from './storage-adapter.js';
 
 /** IndexedDB settings keys (underscore-prefixed: never exported in backups). */
 export const LICENSE_SETTINGS = Object.freeze({
@@ -23,15 +24,6 @@ const MIRROR = Object.freeze({
   [LICENSE_STORAGE_KEYS.key]: LICENSE_SETTINGS.key,
   [LICENSE_STORAGE_KEYS.clock]: LICENSE_SETTINGS.clock
 });
-
-/** @returns {Storage|null} */
-function safeLocalStorage() {
-  try {
-    return globalThis.localStorage ?? null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Synchronous storage facade for core/license backed by localStorage with an

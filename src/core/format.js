@@ -46,6 +46,33 @@ export function toNumber(value) {
 }
 
 /**
+ * Converts Arabic-Indic (٠-٩) and Persian (۰-۹) digits to Western digits and the
+ * Arabic decimal mark (٫) to ".". Other characters are left as they are.
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function normalizeDigits(value) {
+  return String(value ?? '')
+    .replace(/[٠-٩]/g, digit => String(digit.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, digit => String(digit.charCodeAt(0) - 0x06f0))
+    .replace(/٫/g, '.');
+}
+
+/**
+ * Parses a user-entered amount. Accepts Arabic-Indic digits and the Arabic
+ * decimal/thousands separators; blank → null.
+ * @param {unknown} value
+ * @returns {number|null} NaN when the text is not a number.
+ */
+export function parseAmount(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : Number.NaN;
+  const text = normalizeDigits(value).trim().replace(/[٬,\s]/g, '');
+  if (!text) return null;
+  return /^-?\d*\.?\d+$/.test(text) ? Number(text) : Number.NaN;
+}
+
+/**
  * Formats a plain number with grouping.
  * @param {unknown} value
  * @param {{ maxFraction?: number, minFraction?: number }} [options]
@@ -131,16 +158,30 @@ export const todayISO = () => toISODate(new Date());
 export const currentMonthISO = () => todayISO().slice(0, 7);
 
 /**
+ * Parses a YYYY-MM-DD calendar date as a LOCAL date (00:00 local time).
+ *
+ * Never use `new Date("YYYY-MM-DD")` for date-only strings: JavaScript reads
+ * that form as UTC midnight, which lands on the previous day in any timezone
+ * west of UTC. Splitting the string and using the (year, monthIndex, day)
+ * constructor keeps the calendar day exactly as typed.
+ * @param {unknown} value
+ * @returns {Date|null} null unless `value` is a real calendar date (rejects 2026-02-30).
+ */
+export function parseLocalDate(value) {
+  const text = String(value ?? '');
+  if (!ISO_DATE_RE.test(text)) return null;
+  const [year, month, day] = text.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : null;
+}
+
+/**
  * True for a real calendar date in YYYY-MM-DD form.
  * @param {unknown} value
  * @returns {boolean}
  */
 export function isISODate(value) {
-  const match = ISO_DATE_RE.exec(String(value ?? ''));
-  if (!match) return false;
-  const [, y, m, d] = match.map(Number);
-  const date = new Date(y, m - 1, d);
-  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+  return parseLocalDate(value) !== null;
 }
 
 /**
@@ -154,15 +195,17 @@ export function isISOMonth(value) {
 }
 
 /**
- * Parses a YYYY-MM-DD string or ISO timestamp into a Date.
- * Date-only strings are anchored at local noon to avoid timezone day shifts.
+ * Parses a YYYY-MM-DD string or a full ISO timestamp into a Date.
+ * Date-only strings go through parseLocalDate (local calendar day, no UTC shift);
+ * only timestamps that carry their own time/offset use the native parser.
  * @param {unknown} value
  * @returns {Date|null}
  */
 export function parseDate(value) {
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
   if (typeof value !== 'string' || !value) return null;
-  const date = ISO_DATE_RE.test(value) ? new Date(`${value}T12:00:00`) : new Date(value);
+  if (ISO_DATE_RE.test(value)) return parseLocalDate(value);
+  const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -213,8 +256,10 @@ function getHijriFormatter() {
   if (hijriSupported === false) return null;
   if (hijriFormatter) return hijriFormatter;
   try {
+    // Pinned to UTC: calendar dates are fed in as UTC noon (see formatHijri), so the
+    // result never depends on the device timezone, even if it changes mid-session.
     const formatter = new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura-nu-latn', {
-      day: 'numeric', month: 'long', year: 'numeric'
+      day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC'
     });
     hijriSupported = formatter.resolvedOptions().calendar.startsWith('islamic');
     hijriFormatter = hijriSupported ? formatter : null;
@@ -247,7 +292,9 @@ export function formatHijri(value) {
   const date = parseDate(value);
   const formatter = getHijriFormatter();
   if (!date || !formatter) return '';
-  const text = formatter.format(date);
+  // The formatter is pinned to UTC (it is cached, and the device timezone can change
+  // while the app is open), so hand it the same local calendar day as UTC noon.
+  const text = formatter.format(new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 12)));
   return /هـ/.test(text) ? text : `${text} هـ`;
 }
 

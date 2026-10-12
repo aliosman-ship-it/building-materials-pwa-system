@@ -10,13 +10,14 @@ import { hydrateIcons } from './core/icons.js';
 import { toast } from './core/ui.js';
 import { DEFAULT_SETTINGS, OWNER_COMPANY_NAME, STANDARD_MATERIALS, effectiveVatRate, isDefaultCompanyName } from './core/domain.js';
 import { isPinRecord, lockoutRemaining, registerFailure, verifyPin } from './core/security.js';
-import { formatDateDual, formatNumber, todayISO } from './core/format.js';
+import { formatDateDual, formatNumber, normalizeDigits, todayISO } from './core/format.js';
 import { checkActivationStatus } from './core/license.js';
 import { Database, migrateFromLegacy, readLegacySnapshot } from './js/storage-adapter.js';
 import { openLicenseStorage, resolveMasterInstall } from './js/license-storage.js';
+import { DailyStore } from './js/daily-storage.js';
 import { openKeygen, showActivationScreen } from './views/license.js';
 
-export const APP_VERSION = '2.7.0';
+export const APP_VERSION = '2.9.0';
 
 /** Hash that opens the developer key generator. */
 const KEYGEN_HASH = '#admin-keygen';
@@ -27,6 +28,7 @@ const ROUTES = [
   { path: '/ledger', title: 'سجل النقليات', load: () => import('./views/ledger.js') },
   { path: '/accounts', title: 'حسابات العملاء', load: () => import('./views/accounts.js') },
   { path: '/reports', title: 'التقارير والكشوف', load: () => import('./views/reports.js') },
+  { path: '/daily', title: 'حركة العمل اليومية', load: () => import('./views/daily.js') },
   { path: '/settings', title: 'الإعدادات', load: () => import('./views/settings.js') }
 ];
 
@@ -212,6 +214,19 @@ function syncMenuToggle() {
   toggle.title = label;
 }
 
+/** @param {Event} event */
+function normalizeNumericInput(event) {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || !['decimal', 'numeric'].includes(input.inputMode)) return;
+  // Thousands separators are dropped too: amounts are typed as plain numbers.
+  const clean = text => normalizeDigits(text).replace(/[٬,]/g, '');
+  const next = clean(input.value);
+  if (next === input.value) return;
+  const caret = clean(input.value.slice(0, input.selectionStart ?? input.value.length)).length;
+  input.value = next;
+  try { input.setSelectionRange(caret, caret); } catch { /* some input types have no selection */ }
+}
+
 function closeMobileNav() {
   document.body.classList.remove('nav-open');
   syncMenuToggle();
@@ -237,6 +252,10 @@ function setupShell() {
       toggle.focus();
     }
   });
+
+  // Every numeric field (inputmode decimal/numeric) accepts Arabic-Indic digits:
+  // they are converted to Western digits as typed, before any view reads the value.
+  document.addEventListener('input', normalizeNumericInput, true);
 
   $('lock-btn').addEventListener('click', () => ctx.lock());
   $('lock-form').addEventListener('submit', handleUnlock);
@@ -336,6 +355,9 @@ async function hideLockScreen() {
   ctx.locked = false;
   $('lock-screen').hidden = true;
   $('app-shell').inert = false;
+  // Navigation is blocked while locked, so a page still on screen is unchanged:
+  // keep it as is so anything typed before locking is not lost.
+  if (ctx.router.view?.mounted) return;
   if (ctx.router._started) await ctx.router.reload();
   else await ctx.router.start();
 }
@@ -405,7 +427,9 @@ async function maybeRemindBackup() {
     const last = Number(await ctx.db.getSetting('_lastBackupReminder', 0)) || 0;
     if (Date.now() - last < days * 86_400_000) return;
     const tripCount = await ctx.db.trips.count();
-    if (!tripCount) return;
+    let dailyCount = 0;
+    try { dailyCount = new DailyStore().list().length; } catch { /* unreadable daily data is reported on its own page */ }
+    if (!tripCount && !dailyCount) return;
     toast('تذكير: نزّل نسخة احتياطية من بياناتك من صفحة الإعدادات لحمايتها.', 'info', { duration: 7000 });
     await ctx.db.setSetting('_lastBackupReminder', Date.now());
   } catch (error) {
@@ -415,17 +439,35 @@ async function maybeRemindBackup() {
 
 /* ───────────────────────── service worker ───────────────────────── */
 
+/**
+ * Offers a waiting release. It activates only on the user's tap, then the page
+ * reloads once so every module comes from the same release.
+ * @param {ServiceWorker} worker
+ */
+function offerUpdate(worker) {
+  toast('يتوفر تحديث جديد للتطبيق. احفظ عملك ثم اضغط "تحديث الآن".', 'info', {
+    duration: 60_000,
+    action: {
+      label: 'تحديث الآن',
+      onClick: () => {
+        navigator.serviceWorker.addEventListener('controllerchange', () => location.reload(), { once: true });
+        worker.postMessage('SKIP_WAITING');
+      }
+    }
+  });
+}
+
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol)) return;
   window.addEventListener('load', async () => {
     try {
       const registration = await navigator.serviceWorker.register('./sw.js', { scope: './' });
+      // A release that finished installing earlier may already be waiting.
+      if (registration.waiting && navigator.serviceWorker.controller) offerUpdate(registration.waiting);
       registration.addEventListener('updatefound', () => {
         const worker = registration.installing;
         worker?.addEventListener('statechange', () => {
-          if (worker.state === 'installed' && navigator.serviceWorker.controller) {
-            toast('يتوفر تحديث جديد للتطبيق. أعد تحميل الصفحة لتطبيقه.', 'info', { duration: 10000 });
-          }
+          if (worker.state === 'installed' && navigator.serviceWorker.controller) offerUpdate(worker);
         });
       });
     } catch (error) {

@@ -1,0 +1,15 @@
+{
+  "name": "dad-transport-tests",
+  "private": true,
+  "type": "module",
+  "description": "Test suite for the DAD Transport PWA. The app itself has no build step or dependencies.",
+  "scripts": {
+    "test": "node --test \"unit/**/*.test.js\"",
+    "test:e2e": "node e2e/smoke.js",
+    "test:all": "npm test && npm run test:e2e"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5",
+    "puppeteer-core": "^25.13.0"
+  }
+}

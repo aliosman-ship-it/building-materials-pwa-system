@@ -1,14 +1,14 @@
 {
-  "name": "شركة سعد القحطاني لتوريد مواد البناء",
-  "short_name": "شركة سعد القحطاني",
-  "description": "نظام إدارة النقلات وحسابات العملاء لشركة سعد فيصل القحطاني لتوريد مواد البناء",
+  "name": "نظام إدارة النقليات ومواد البناء",
+  "short_name": "النقليات",
+  "description": "نظام إدارة النقلات وحسابات العملاء لشركات توريد مواد البناء — يعمل دون اتصال",
   "lang": "ar",
   "dir": "rtl",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f1f5f9",
-  "theme_color": "#0c4a6e",
+  "background_color": "#f8fafc",
+  "theme_color": "#ffffff",
   "icons": [
     {
       "src": "./assets/icons/icon-192.png",

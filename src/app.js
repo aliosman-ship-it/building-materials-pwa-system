@@ -6,6 +6,7 @@
  */
 
 import { Router } from './core/router.js';
+import { h, setAttr } from './core/dom.js';
 import { hydrateIcons } from './core/icons.js';
 import { toast } from './core/ui.js';
 import { DEFAULT_SETTINGS, OWNER_COMPANY_NAME, STANDARD_MATERIALS, effectiveVatRate, isDefaultCompanyName } from './core/domain.js';
@@ -17,7 +18,7 @@ import { openLicenseStorage, resolveMasterInstall } from './js/license-storage.j
 import { DailyStore } from './js/daily-storage.js';
 import { openKeygen, showActivationScreen } from './views/license.js';
 
-export const APP_VERSION = '2.9.0';
+export const APP_VERSION = '2.10.0';
 
 /** Hash that opens the developer key generator. */
 const KEYGEN_HASH = '#admin-keygen';
@@ -179,8 +180,25 @@ function applyBranding() {
   const unnamed = isDefaultCompanyName(ctx.settings.companyName);
   $('brand-name').textContent = ctx.settings.companyName || DEFAULT_SETTINGS.companyName;
   $('brand-sub').textContent = unnamed ? 'أدخل اسم شركتك من الإعدادات' : 'نظام النقليات وحسابات العملاء';
+  applyBrandLogo(ctx.settings.companyLogo);
   $('lock-btn').hidden = !isPinRecord(ctx.settings.pin);
   $('today-label').textContent = ctx.settings.showHijri === false ? todayISO() : formatDateDual(todayISO(), { style: 'long' });
+}
+
+/**
+ * Shows the uploaded company logo in the sidebar brand mark, or the default icon when there is none.
+ * @param {string} logo Validated image data URL, or '' for the default.
+ */
+function applyBrandLogo(logo) {
+  const mark = $('brand-mark');
+  let image = mark.querySelector('img');
+  if (logo) {
+    if (!image) mark.append(image = h('img', { class: 'brand-logo', alt: '' }));
+    if (image.getAttribute('src') !== logo) setAttr(image, 'src', logo);
+  } else {
+    image?.remove();
+  }
+  mark.classList.toggle('has-logo', Boolean(logo));
 }
 
 /* Sidebar: an icon-only rail on wide screens, an off-canvas drawer on narrow ones. */

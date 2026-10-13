@@ -35,6 +35,7 @@ export const OWNER_COMPANY_NAME = 'شركة علي عثمان لتوريد مو�
 export const DEFAULT_SETTINGS = Object.freeze({
   companyName: DEFAULT_COMPANY_NAME,
   companyPhone: '',
+  companyLogo: '',
   taxNumber: '',
   vatEnabled: false,
   vatRate: 15,
@@ -45,6 +46,19 @@ export const DEFAULT_SETTINGS = Object.freeze({
 
 /** Former names of the owner's company; settings holding one are renamed to OWNER_COMPANY_NAME. */
 const LEGACY_COMPANY_NAMES = Object.freeze(['شركة سعد فيصل القحطاني لتوريد مواد البناء', 'شركة سعد القحطاني']);
+
+/** Longest accepted company logo (a data URL); a 200×200 compressed image is far smaller. */
+export const MAX_LOGO_LENGTH = 200_000;
+
+/** A base64 raster-image data URL — the only form a stored company logo may take. */
+const LOGO_DATA_URL = /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * True for a value that is safe to store and render as the company logo.
+ * @param {unknown} value
+ * @returns {value is string}
+ */
+export const isLogoDataUrl = value => typeof value === 'string' && value.length <= MAX_LOGO_LENGTH && LOGO_DATA_URL.test(value);
 
 /** Keys that must never leave the device in a backup. */
 export const PRIVATE_SETTING_KEYS = Object.freeze(['pin', 'pinAttempts']);
@@ -1012,6 +1026,7 @@ export function normalizeSettings(raw = {}) {
       return name || DEFAULT_COMPANY_NAME;
     })(),
     companyPhone: cleanText(merged.companyPhone, 40),
+    companyLogo: isLogoDataUrl(merged.companyLogo) ? merged.companyLogo : '',
     taxNumber: cleanText(merged.taxNumber, 20).replace(/[^\d]/g, ''),
     vatEnabled: Boolean(merged.vatEnabled),
     vatRate: (() => { try { return normalizeVatRate(merged.vatRate); } catch { return DEFAULT_SETTINGS.vatRate; } })(),
@@ -1031,13 +1046,14 @@ export const isDefaultCompanyName = name => !cleanText(name) || cleanText(name) 
 /**
  * Company details for printed documents; the placeholder is left out rather
  * than printed on a client's statement.
- * @param {{ companyName?: string, taxNumber?: string, companyPhone?: string }} settings
- * @returns {{ name: string, taxNumber: string, phone: string }}
+ * @param {{ companyName?: string, taxNumber?: string, companyPhone?: string, companyLogo?: string }} settings
+ * @returns {{ name: string, taxNumber: string, phone: string, logo: string }}
  */
 export const companyForPrint = settings => ({
   name: isDefaultCompanyName(settings.companyName) ? '' : String(settings.companyName),
   taxNumber: settings.taxNumber || '',
-  phone: settings.companyPhone || ''
+  phone: settings.companyPhone || '',
+  logo: isLogoDataUrl(settings.companyLogo) ? settings.companyLogo : ''
 });
 
 /**

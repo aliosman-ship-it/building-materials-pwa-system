@@ -10,7 +10,7 @@
  * Bump CACHE_VERSION with every change to a cached file.
  */
 
-const CACHE_VERSION = 'v2.9.0';
+const CACHE_VERSION = 'v2.10.0';
 const CACHE_PREFIX = 'ali-othman-transport-';
 const CACHE_NAME = `${CACHE_PREFIX}${CACHE_VERSION}`;
 /** Cache prefixes used by earlier builds; their caches are removed on activate. */

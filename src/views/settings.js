@@ -9,10 +9,10 @@ import { View } from '../core/view.js';
 import { field, h, readForm } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { confirmDialog, emptyState, openModal, toast, withBusy } from '../core/ui.js';
-import { DomainError, isDefaultCompanyName, isPeriodLocked, normalizeDataset, normalizeMaterial, normalizeSettings, splitVatInclusive } from '../core/domain.js';
+import { DomainError, MAX_LOGO_LENGTH, isDefaultCompanyName, isLogoDataUrl, isPeriodLocked, normalizeDataset, normalizeMaterial, normalizeSettings, splitVatInclusive } from '../core/domain.js';
 import { createPinRecord, isPinRecord, isValidPin, verifyPin } from '../core/security.js';
 import { currentMonthISO, formatBytes, formatDateTime, formatMoney, formatMonthLabel, formatNumber, shiftMonth } from '../core/format.js';
-import { exportJSON, exportName, readFileAsText } from '../core/export.js';
+import { LOGO_FILE_TYPES, exportJSON, exportName, readFileAsText, readImageAsLogo } from '../core/export.js';
 import { migrateFromLegacy, readLegacySnapshot } from '../js/storage-adapter.js';
 import { DailyStore } from '../js/daily-storage.js';
 import { button, handleFormError, iconButton, pageHeader, vatDeductionRate } from './shared.js';
@@ -34,6 +34,9 @@ export default class SettingsView extends View {
 
   afterMount() {
     this.on('submit', '#company-form', e => this.saveSettings(e, 'تم حفظ بيانات المنشأة. يظهر الاسم الآن في أعلى التطبيق وفي التقارير.'));
+    this.on('click', '[data-action="pick-logo"]', () => /** @type {HTMLInputElement} */ (this.root?.querySelector('#logo-input'))?.click());
+    this.on('change', '#logo-input', e => this.uploadLogo(/** @type {HTMLInputElement} */ (e.target)));
+    this.on('click', '[data-action="remove-logo"]', () => this.removeLogo());
     this.on('submit', '#tax-form', e => this.saveSettings(e, 'تم حفظ إعدادات الضريبة. تُطبّق على النقلات الجديدة فقط.'));
     this.on('submit', '#display-form', e => this.saveSettings(e, 'تم حفظ إعدادات العرض.'));
     this.on('click', '[data-action="lock-period"]', () => this.lockPeriod());
@@ -86,8 +89,39 @@ export default class SettingsView extends View {
       field('اسم المنشأة', h('input', { class: 'input', name: 'companyName', value: unnamed ? '' : s.companyName, maxLength: 120, required: true, placeholder: 'مثال: مؤسسة الريان لمواد البناء والنقليات' }), { class: 'span-2' }),
       field('الهاتف', h('input', { class: 'input num', name: 'companyPhone', value: s.companyPhone || '', maxLength: 40, inputMode: 'tel' })),
       field('الرقم الضريبي (15 رقماً)', h('input', { class: 'input num', name: 'taxNumber', value: s.taxNumber || '', maxLength: 15, inputMode: 'numeric', pattern: '\\d{15}' })),
+      this.renderLogoField(s.companyLogo),
       h('div', { class: 'span-2' }, button('حفظ', { icon: 'check', variant: 'primary', type: 'submit' }))
     ), { extra: h('span', { class: 'muted small' }, 'تظهر في الكشوف المطبوعة') });
+  }
+
+  /**
+   * Company logo picker with a live preview; changes are saved immediately.
+   * @param {string} logo
+   */
+  renderLogoField(logo) {
+    return h('div', { class: 'field span-2' },
+      h('span', { class: 'field-label', id: 'logo-label' }, 'شعار المنشأة'),
+      h('div', { class: 'logo-field' },
+        h('div', { class: 'logo-preview', id: 'logo-preview', role: 'img', ariaLabelledby: 'logo-label' }, this.logoPreview(logo)),
+        h('div', { class: 'stack' },
+          h('div', { class: 'row' },
+            button('رفع شعار', { icon: 'upload', action: 'pick-logo' }),
+            h('span', { id: 'remove-logo-slot' }, logo ? this.removeLogoButton() : null)
+          ),
+          h('small', { class: 'field-hint' }, 'PNG أو JPG أو WebP بحجم 5 ميجابايت كحد أقصى. يُصغَّر تلقائياً إلى 200×200 بكسل ويظهر في القائمة الجانبية والكشوف المطبوعة.')
+        ),
+        h('input', { type: 'file', id: 'logo-input', accept: LOGO_FILE_TYPES.join(','), hidden: true })
+      )
+    );
+  }
+
+  /** @param {string} logo */
+  logoPreview(logo) {
+    return logo ? h('img', { src: logo, alt: '' }) : icon('truck', { size: 32 });
+  }
+
+  removeLogoButton() {
+    return button('حذف الشعار', { icon: 'trash', variant: 'danger-soft', action: 'remove-logo' });
   }
 
   /** Standalone VAT calculator: VAT-inclusive total → VAT amount + net amount. */
@@ -329,6 +363,40 @@ export default class SettingsView extends View {
     await this.ctx.reloadSettings();
     toast(message, 'success');
     this.update();
+  }
+
+  /**
+   * Persists a logo ('' restores the default) and refreshes the preview and sidebar in place,
+   * leaving any unsaved edits elsewhere in the company form untouched.
+   * @param {string} logo
+   */
+  async saveLogo(logo) {
+    await this.ctx.db.setSettings({ companyLogo: logo || undefined });
+    await this.ctx.reloadSettings();
+    this.root?.querySelector('#logo-preview')?.replaceChildren(this.logoPreview(logo));
+    this.root?.querySelector('#remove-logo-slot')?.replaceChildren(...(logo ? [this.removeLogoButton()] : []));
+  }
+
+  /** @param {HTMLInputElement} input */
+  async uploadLogo(input) {
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    let logo;
+    try {
+      logo = await readImageAsLogo(file, { maxLength: MAX_LOGO_LENGTH });
+    } catch (error) {
+      toast(/** @type {any} */ (error)?.message || 'تعذر معالجة الصورة.', 'error');
+      return;
+    }
+    if (!isLogoDataUrl(logo)) { toast('تعذر معالجة الصورة.', 'error'); return; }
+    await this.saveLogo(logo);
+    toast('تم حفظ شعار المنشأة. يظهر الآن في القائمة الجانبية والكشوف المطبوعة.', 'success');
+  }
+
+  async removeLogo() {
+    await this.saveLogo('');
+    toast('تم حذف الشعار واستعادة الشعار الافتراضي.', 'info');
   }
 
   async lockPeriod() {

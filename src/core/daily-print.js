@@ -6,6 +6,7 @@
  */
 
 import { escapeHtml } from './dom.js';
+import { COMPANY_BLOCK_CSS, PRINT_CSP, companyBlockHtml } from './export.js';
 import { WITHDRAWER_NAME, computeDailyTotals, weekdayName } from './daily.js';
 import { formatDate, formatDateTime, formatHijri, formatMoney, formatNumber } from './format.js';
 
@@ -82,7 +83,7 @@ function linesTable(lines, title, total, rowCount) {
 /**
  * Builds the printable HTML for one daily sheet. All dynamic text is escaped.
  * @param {import('./daily.js').DailySheet} sheet
- * @param {{ company: { name: string, taxNumber?: string, phone?: string }, showHijri?: boolean }} options
+ * @param {{ company: import('./export.js').PrintCompany, showHijri?: boolean }} options
  * @returns {string}
  */
 export function buildDailySheetHtml(sheet, { company, showHijri = true }) {
@@ -93,8 +94,8 @@ export function buildDailySheetHtml(sheet, { company, showHijri = true }) {
   const hijri = showHijri ? formatHijri(sheet.date) : '';
   const title = `يومية حركة العمل — ${formatDate(sheet.date)}`;
 
-  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>${escapeHtml(title)}</title><style>${DAILY_PRINT_CSS}</style></head><body>
-<header class="doc"><div class="company">${escapeHtml(company.name || '')}${company.taxNumber ? `<small>الرقم الضريبي: ${escapeHtml(company.taxNumber)}</small>` : ''}${company.phone ? `<small>هاتف: ${escapeHtml(company.phone)}</small>` : ''}</div>
+  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${PRINT_CSP}"><title>${escapeHtml(title)}</title><style>${DAILY_PRINT_CSS}${COMPANY_BLOCK_CSS}</style></head><body>
+<header class="doc">${companyBlockHtml(company)}
 <div class="doc-title"><h1>يومية حركة العمل</h1><p>المبيعات والمشتريات والمصروفات والعهدة</p></div></header>
 <section class="date-strip">
 <div><span>اليوم</span><strong>${escapeHtml(weekdayName(sheet.date))}</strong></div>

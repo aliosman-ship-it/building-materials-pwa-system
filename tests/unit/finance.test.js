@@ -6,9 +6,9 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DomainError, OWNER_COMPANY_NAME, STANDARD_VAT_RATE, accountTotals, activeMonths, companyForPrint, isDefaultCompanyName, addAccountTransaction, balanceStatus, buildTimeline,
+  DomainError, MAX_LOGO_LENGTH, OWNER_COMPANY_NAME, STANDARD_VAT_RATE, accountTotals, activeMonths, companyForPrint, isDefaultCompanyName, addAccountTransaction, balanceStatus, buildTimeline,
   computeClientBalances, computeStatement, computeTripAmounts, createAccount, createPayment,
-  createSettlementPayment, createTrip, effectiveVatRate, netFromGross, normalizeSettings, roundMoney,
+  createSettlementPayment, createTrip, effectiveVatRate, isLogoDataUrl, netFromGross, normalizeSettings, roundMoney,
   splitVatInclusive, summarizeLedger, updateTrip, withRunningBalance
 } from '../../src/core/domain.js';
 
@@ -223,8 +223,24 @@ describe('settings', () => {
     assert.equal(normalizeSettings({ companyName: 'شركة سعد القحطاني' }).companyName, OWNER_COMPANY_NAME);
   });
   test('printed documents leave out the placeholder name', () => {
-    assert.deepEqual(companyForPrint({ companyName: 'اسم الشركة', taxNumber: '3001' }), { name: '', taxNumber: '3001', phone: '' });
+    assert.deepEqual(companyForPrint({ companyName: 'اسم الشركة', taxNumber: '3001' }), { name: '', taxNumber: '3001', phone: '', logo: '' });
     assert.equal(companyForPrint({ companyName: 'مؤسسة أخرى' }).name, 'مؤسسة أخرى');
+  });
+  test('only base64 raster data URLs within the size cap are kept as the company logo', () => {
+    const png = 'data:image/png;base64,iVBORw0KGgo=';
+    assert.equal(normalizeSettings({}).companyLogo, '');
+    assert.equal(normalizeSettings({ companyLogo: png }).companyLogo, png);
+    assert.equal(normalizeSettings({ companyLogo: 'data:image/webp;base64,UklGRg==' }).companyLogo, 'data:image/webp;base64,UklGRg==');
+    for (const bad of [
+      'data:image/svg+xml;base64,PHN2Zz4=', 'javascript:alert(1)', 'https://example.com/logo.png',
+      'data:image/png;base64,AAA" onerror="alert(1)', 'data:text/html;base64,PGI+', 42, null,
+      `data:image/png;base64,${'A'.repeat(MAX_LOGO_LENGTH)}`
+    ]) {
+      assert.equal(isLogoDataUrl(bad), false, String(bad).slice(0, 40));
+      assert.equal(normalizeSettings({ companyLogo: bad }).companyLogo, '');
+    }
+    assert.equal(companyForPrint({ companyLogo: png }).logo, png);
+    assert.equal(companyForPrint({ companyLogo: 'javascript:alert(1)' }).logo, '');
   });
   test('effectiveVatRate is 0 unless VAT is enabled', () => {
     assert.equal(effectiveVatRate({ vatEnabled: false, vatRate: 15 }), 0);

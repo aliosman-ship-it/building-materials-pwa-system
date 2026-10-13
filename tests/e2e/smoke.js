@@ -248,6 +248,42 @@ await step('the company name is saved from Settings and shown everywhere', async
   assert.equal(await page.$('#company-form .callout'), null);
 });
 
+await step('a company logo is uploaded, resized, shown in the sidebar, and removed', async () => {
+  await go('#/settings');
+  await clearToasts();
+  const typedName = 'اسم لم يُحفظ بعد';
+  await page.$eval('#company-form [name="companyName"]', (el, value) => { el.value = value; }, typedName);
+  const input = await page.$('#logo-input');
+  await input.uploadFile(join(ROOT, 'assets/icons/icon-512.png'));
+  await waitToast(/تم حفظ شعار المنشأة/);
+  await page.waitForSelector('#brand-mark.has-logo img.brand-logo');
+  const logo = await page.$eval('#brand-mark img', img => ({ src: img.src, w: img.naturalWidth, h: img.naturalHeight }));
+  assert.match(logo.src, /^data:image\/(png|webp|jpeg);base64,/);
+  assert.ok(Math.max(logo.w, logo.h) === 200, `resized to 200px, got ${logo.w}×${logo.h}`);
+  assert.ok(logo.src.length < 200_000);
+  assert.equal(await page.$eval('#logo-preview img', img => img.src), logo.src, 'live preview shows the saved logo');
+  assert.equal(await page.$eval('#company-form [name="companyName"]', el => el.value), typedName, 'unsaved form edits survive an upload');
+  const mark = await page.$eval('#brand-mark', el => { const r = el.getBoundingClientRect(); return [r.width, r.height, getComputedStyle(el.querySelector('svg')).display]; });
+  assert.deepEqual(mark, [40, 40, 'none'], 'logo stays inside the 40px brand mark and replaces the default icon');
+  await page.screenshot({ path: join(SHOTS, 'settings-logo.png') });
+
+  await page.reload();
+  await page.waitForSelector('#logo-preview img');
+  assert.equal(await page.$eval('#brand-mark img', img => img.src), logo.src, 'logo persists across reloads');
+
+  await clearToasts();
+  await (await page.$('#logo-input')).uploadFile(join(ROOT, 'manifest.json'));
+  await waitToast(/صيغة الصورة غير مدعومة/);
+  assert.equal(await page.$eval('#brand-mark img', img => img.src), logo.src, 'a rejected file leaves the logo unchanged');
+
+  await clearToasts();
+  await page.click('[data-action="remove-logo"]');
+  await waitToast(/تم حذف الشعار/);
+  await page.waitForFunction(() => !document.querySelector('#brand-mark img') && !document.querySelector('#logo-preview img'));
+  assert.equal(await page.$('[data-action="remove-logo"]'), null);
+  assert.notEqual(await page.$eval('#brand-mark svg', svg => getComputedStyle(svg).display), 'none', 'default icon is back');
+});
+
 await step('footer shows clickable WhatsApp and email contacts', async () => {
   const links = await page.$$eval('.app-footer a', nodes => nodes.map(node => ({
     href: node.getAttribute('href'), text: node.querySelector('.contact-value').textContent, target: node.target,

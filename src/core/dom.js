@@ -20,7 +20,8 @@ const DIRECT_PROPS = new Set(['value', 'checked', 'selected', 'disabled', 'hidde
 
 /** Attribute names that could execute script and are therefore refused. */
 const FORBIDDEN_ATTR = /^on|^srcdoc$|^formaction$/i;
-const SAFE_URL = /^(?:#|\.{0,2}\/|https?:|mailto:|tel:|blob:)/i;
+/** Allowed URL schemes; `data:` only for base64 raster images (never SVG, which can carry script). */
+const SAFE_URL = /^(?:#|\.{0,2}\/|https?:|mailto:|tel:|blob:|data:image\/(?:png|jpeg|webp);base64,)/i;
 
 /**
  * Appends children (strings, numbers, nodes, nested arrays) to a parent.

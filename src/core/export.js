@@ -367,6 +367,49 @@ export function readFileAsText(file, maxBytes = 50 * 1024 * 1024) {
   });
 }
 
+/** Image types accepted as a company logo. */
+export const LOGO_FILE_TYPES = Object.freeze(['image/png', 'image/jpeg', 'image/webp']);
+
+/**
+ * Shrinks a user-selected image to fit within maxSide×maxSide (never upscaling)
+ * and returns the smallest of its WebP/PNG (and, for photos, JPEG) encodings
+ * as a base64 data URL. Transparency is kept for PNG/WebP sources.
+ * @param {File} file
+ * @param {{ maxSide?: number, maxBytes?: number, maxLength?: number }} [options]
+ *   maxBytes caps the input file; maxLength caps the resulting data URL.
+ * @returns {Promise<string>}
+ */
+export async function readImageAsLogo(file, { maxSide = 200, maxBytes = 5 * 1024 * 1024, maxLength = 200_000 } = {}) {
+  if (!LOGO_FILE_TYPES.includes(file.type)) throw new Error('صيغة الصورة غير مدعومة. استخدم PNG أو JPG أو WebP.');
+  if (file.size > maxBytes) throw new Error(`حجم الصورة أكبر من ${Math.round(maxBytes / 1024 / 1024)} ميجابايت.`);
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = url;
+    try {
+      await image.decode();
+    } catch {
+      throw new Error('تعذر قراءة الصورة. قد يكون الملف تالفاً.');
+    }
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('تعذر معالجة الصورة في هذا المتصفح.');
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    // Browsers without a WebP encoder return PNG for the WebP request, which is still valid.
+    const encodings = [canvas.toDataURL('image/webp', 0.9), canvas.toDataURL('image/png')];
+    if (file.type === 'image/jpeg') encodings.push(canvas.toDataURL('image/jpeg', 0.9));
+    const smallest = encodings.reduce((best, next) => (next.length < best.length ? next : best));
+    if (smallest.length > maxLength) throw new Error('الصورة كبيرة جداً حتى بعد ضغطها. جرّب شعاراً أبسط.');
+    return smallest;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 /* ───────────────────────── printable reports (PDF) ───────────────────────── */
 
 /**
@@ -388,13 +431,40 @@ export function readFileAsText(file, maxBytes = 50 * 1024 * 1024) {
  * @typedef {Object} PrintReport
  * @property {string} title
  * @property {string} [subtitle]
- * @property {{ name: string, taxNumber?: string, phone?: string }} company
+ * @property {PrintCompany} company
  * @property {Array<{ label: string, value: string }>} [meta]
  * @property {Array<{ label: string, value: string, tone?: 'due'|'credit'|'settled'|'neutral' }>} [summary]
  * @property {PrintSection[]} sections
  * @property {string} [notes]
  * @property {boolean|string[]} [signatures] `true` for the default accountant/customer lines, or custom labels.
  */
+
+/**
+ * @typedef {Object} PrintCompany
+ * @property {string} name
+ * @property {string} [taxNumber]
+ * @property {string} [phone]
+ * @property {string} [logo] Base64 image data URL (validated by `companyForPrint`).
+ */
+
+/** Printed documents load nothing external; inline styles and the embedded logo only. */
+export const PRINT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:";
+
+/** Logo + company details block shared by every printed header. */
+export const COMPANY_BLOCK_CSS = `
+.company-block { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.company-logo { display: block; max-height: 40px; max-width: 120px; width: auto; height: auto; object-fit: contain; flex-shrink: 0; }
+`;
+
+/**
+ * Header block with the optional company logo, name, tax number and phone.
+ * @param {PrintCompany} company
+ * @returns {string}
+ */
+export function companyBlockHtml(company) {
+  const logo = /^data:image\/(?:png|jpeg|webp);base64,/.test(company.logo || '') ? `<img class="company-logo" src="${escapeHtml(company.logo)}" alt="">` : '';
+  return `<div class="company-block">${logo}<div class="company">${escapeHtml(company.name || '')}${company.taxNumber ? `<small>الرقم الضريبي: ${escapeHtml(company.taxNumber)}</small>` : ''}${company.phone ? `<small>هاتف: ${escapeHtml(company.phone)}</small>` : ''}</div></div>`;
+}
 
 const PRINT_CSS = `
 @page { size: A4; margin: 14mm 12mm; }
@@ -448,8 +518,8 @@ export function buildPrintableHtml(report) {
     return `${item.title ? `<h2>${escapeHtml(item.title)}</h2>` : ''}<table>${head}<tbody>${body}</tbody>${foot}</table>`;
   };
   const company = report.company || { name: '' };
-  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>${escapeHtml(report.title)}</title><style>${PRINT_CSS}</style></head><body>
-<header class="doc"><div class="company">${escapeHtml(company.name)}${company.taxNumber ? `<small>الرقم الضريبي: ${escapeHtml(company.taxNumber)}</small>` : ''}${company.phone ? `<small>هاتف: ${escapeHtml(company.phone)}</small>` : ''}</div>
+  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${PRINT_CSP}"><title>${escapeHtml(report.title)}</title><style>${PRINT_CSS}${COMPANY_BLOCK_CSS}</style></head><body>
+<header class="doc">${companyBlockHtml(company)}
 <div class="doc-title"><h1>${escapeHtml(report.title)}</h1>${report.subtitle ? `<p>${escapeHtml(report.subtitle)}</p>` : ''}</div></header>
 ${report.meta?.length ? `<section class="meta">${report.meta.map(item => `<div><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.value)}</strong></div>`).join('')}</section>` : ''}
 ${report.summary?.length ? `<section class="summary">${report.summary.map(item => `<div class="tone-${item.tone || 'neutral'}"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.value)}</strong></div>`).join('')}</section>` : ''}

@@ -14,6 +14,7 @@ import {
   registerFailure, verifyPin
 } from '../../src/core/security.js';
 import { escapeHtml } from '../../src/core/dom.js';
+import { buildDailySheetHtml } from '../../src/core/daily-print.js';
 import { buildPrintableHtml, toCSV } from '../../src/core/export.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -81,6 +82,22 @@ describe('output escaping', () => {
     });
     assert.ok(!html.includes('<img'), 'raw markup must not survive');
     assert.match(html, /Content-Security-Policy" content="default-src 'none'/);
+  });
+  test('printed headers embed a valid logo and refuse anything else', () => {
+    const logo = 'data:image/png;base64,iVBORw0KGgo=';
+    const report = company => buildPrintableHtml({ title: 't', company, sections: [] });
+    const withLogo = report({ name: 'مؤسسة', logo });
+    assert.ok(withLogo.includes(`<img class="company-logo" src="${logo}" alt="">`));
+    assert.match(withLogo, /content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"/, 'only inline data images may load');
+    assert.match(withLogo, /\.company-logo \{[^}]*max-height: 40px;[^}]*object-fit: contain;/);
+    assert.ok(!report({ name: 'مؤسسة' }).includes('<img'), 'no logo → no image');
+    for (const bad of ['javascript:alert(1)', 'https://evil.example/x.png', 'data:image/svg+xml;base64,PHN2Zz4=']) {
+      assert.ok(!report({ name: 'x', logo: bad }).includes('<img'), bad);
+    }
+    const quoted = report({ name: 'x', logo: 'data:image/png;base64,A" onerror="alert(1)' });
+    assert.ok(!quoted.includes('" onerror="'), 'attribute breakout is escaped');
+    const daily = buildDailySheetHtml({ date: '2026-10-11', sales: [], purchases: [], expenses: [] }, { company: { name: 'مؤسسة', logo } });
+    assert.ok(daily.includes(`<img class="company-logo" src="${logo}" alt="">`), 'daily sheet header carries the logo too');
   });
   test('CSV export neutralizes spreadsheet formula injection', () => {
     const csv = toCSV([{ header: 'name', value: row => row }], ['=HYPERLINK("http://evil")', '+1', '-2', '@SUM(A1)', 'safe']);
